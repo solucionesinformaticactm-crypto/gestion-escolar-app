@@ -60,7 +60,6 @@ if "usuario_actual" not in st.session_state:
 
 # Función auxiliar para generar enlace de WhatsApp
 def generar_link_whatsapp(numero, mensaje):
-    # Limpiar número de teléfono (remueve espacios, guiones y signos)
     num_limpio = ''.join(filter(str.isdigit, str(numero)))
     mensaje_codificado = urllib.parse.quote(mensaje)
     return f"https://wa.me/{num_limpio}?text={mensaje_codificado}"
@@ -120,7 +119,6 @@ if not st.session_state["autenticado"]:
 else:
     user_info = st.session_state["usuario_actual"]
     
-    # Barra lateral con perfil y botón de CERRAR SESIÓN
     st.sidebar.image("https://img.icons8.com/isometric/100/graduation-cap.png", width=70)
     st.sidebar.title("Portal Escolar")
     st.sidebar.success(f"👤 **{user_info['nombre']}**\n\nRol: *{user_info['rol']}*")
@@ -154,22 +152,30 @@ else:
             
             col_f1, col_f2 = st.columns([1, 2])
             with col_f1:
-                cursos_disponibles = ["Todos"] + sorted(list(alumnos_df['Año'].astype(str) + "°" + alumnos_df['División'].astype(str)).unique())
+                # SOLUCIÓN DEL ERROR: Construcción segura de la lista de cursos
+                cursos_unicos = (
+                    alumnos_df['Año'].astype(str).str.strip() + "°" + 
+                    alumnos_df['División'].astype(str).str.strip()
+                ).unique()
+                
+                cursos_disponibles = ["Todos"] + sorted(list(cursos_unicos))
                 curso_filtro = st.selectbox("Filtrar por Curso:", cursos_disponibles)
+
             with col_f2:
                 buscar_alumno = st.text_input("Buscar por Nombre, Apellido o ID:", placeholder="Ej. Ortiz, AL-001...")
 
             alumnos_vista = alumnos_df.copy()
             if curso_filtro != "Todos":
-                anio_f = int(curso_filtro.split("°")[0])
-                div_f = curso_filtro.split("°")[1]
+                partes = curso_filtro.split("°")
+                anio_f = int(partes[0])
+                div_f = partes[1]
                 alumnos_vista = alumnos_vista[(alumnos_vista['Año'] == anio_f) & (alumnos_vista['División'] == div_f)]
             
             if buscar_alumno:
                 alumnos_vista = alumnos_vista[
-                    alumnos_vista['Nombre'].str.contains(buscar_alumno, case=False, na=False) |
-                    alumnos_vista['Apellido'].str.contains(buscar_alumno, case=False, na=False) |
-                    alumnos_vista['ID_Alumno'].str.contains(buscar_alumno, case=False, na=False)
+                    alumnos_vista['Nombre'].astype(str).str.contains(buscar_alumno, case=False, na=False) |
+                    alumnos_vista['Apellido'].astype(str).str.contains(buscar_alumno, case=False, na=False) |
+                    alumnos_vista['ID_Alumno'].astype(str).str.contains(buscar_alumno, case=False, na=False)
                 ]
 
             st.dataframe(alumnos_vista, use_container_width=True)
@@ -230,7 +236,6 @@ else:
             alumno_sel = st.selectbox("Seleccionar Alumno para Notificar:", notas_prof['Alumno'].unique())
             trimestre_sel = st.selectbox("Seleccionar Trimestre:", ["1° Trimestre", "2° Trimestre", "3° Trimestre"])
             
-            # Obtener datos del alumno seleccionado
             row_nota = notas_prof[notas_prof['Alumno'] == alumno_sel].iloc[0]
             row_alumno_info = alumnos_df[alumnos_df['ID_Alumno'] == row_nota['ID_Alumno']].iloc[0] if row_nota['ID_Alumno'] in alumnos_df['ID_Alumno'].values else None
 
@@ -295,7 +300,6 @@ else:
         if st.button("💾 Guardar Asistencia"):
             st.success("Asistencia guardada correctamente.")
 
-        # Sección para enviar Avisos por WhatsApp de Inasistencias
         st.markdown("---")
         st.subheader("📲 Envío de Notificaciones de Ausencia por WhatsApp")
         
@@ -305,7 +309,6 @@ else:
             st.warning(f"Se registraron **{len(ausentes)}** alumno(s) ausente(s) el día {fecha_asistencia.strftime('%d/%m/%Y')}:")
             
             for _, row_ausente in ausentes.iterrows():
-                # Buscar información de contacto del tutor
                 info_alumno = alumnos_df[alumnos_df['ID_Alumno'] == row_ausente['ID_Alumno']]
                 
                 if not info_alumno.empty:
