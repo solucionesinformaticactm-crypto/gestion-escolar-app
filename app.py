@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
 # Configuración de página y estética Gris / Violeta
 st.set_page_config(
@@ -89,7 +90,6 @@ if usuario_ingresado:
         st.title(f"📚 Gestión Académica — Prof. {prof_data['Nombre']} {prof_data['Apellido']}")
         st.markdown(f"**Materia Asignada:** `{prof_data['Materia_Principal']}`")
 
-        # Filtrar solo las notas correspondientes a este profesor
         notas_prof = notas_df[notas_df['ID_Profesor'] == user_info['id']]
         cursos = notas_prof[['Año', 'División']].drop_duplicates()
         
@@ -99,13 +99,18 @@ if usuario_ingresado:
         anio_sel = int(curso_seleccionado.split("°")[0])
         div_sel = curso_seleccionado.split(" ")[1]
 
-        notas_curso = notas_prof[(notas_prof['Año'] == anio_sel) & (notas_prof['División'] == div_sel)]
+        notas_curso = notas_prof[(notas_prof['Año'] == anio_sel) & (notas_prof['División'] == div_sel)].copy()
 
         st.subheader(f"Planilla de Notas: {prof_data['Materia_Principal']} — {curso_seleccionado}")
         
-        # Tabla interactiva para edición de calificaciones
+        # Configuración de columnas con selectores de notas del 1 al 10
         edited_df = st.data_editor(
             notas_curso[['ID_Alumno', 'Alumno', 'Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.', 'Promedio', 'Condición', 'Observación']],
+            column_config={
+                "Nota_1er_Trim.": st.column_config.SelectboxColumn("1° Trimestre", options=list(range(1, 11)), required=True),
+                "Nota_2do_Trim.": st.column_config.SelectboxColumn("2° Trimestre", options=list(range(1, 11)), required=True),
+                "Nota_3er_Trim.": st.column_config.SelectboxColumn("3° Trimestre", options=list(range(1, 11)), required=True),
+            },
             disabled=['ID_Alumno', 'Alumno', 'Promedio', 'Condición'],
             use_container_width=True
         )
@@ -116,12 +121,36 @@ if usuario_ingresado:
     # --- VISTA PRECEPTORÍA ---
     elif user_info['rol'] == 'Preceptor':
         st.title("📋 Control Diario de Asistencia")
-        curso_p = st.selectbox("Seleccionar Curso:", ["1°A", "2°A", "3°A"])
         
-        st.subheader(f"Registro de Asistencia - Curso {curso_p}")
-        st.data_editor(
-            asistencia_df[['ID_Alumno', 'Alumno', 'Estado', 'Observación_Preceptor']],
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            curso_p = st.selectbox("Seleccionar Curso:", ["1°A", "2°A", "3°A"])
+        with col_c2:
+            fecha_asistencia = st.date_input("Fecha de Asistencia:", datetime.now())
+
+        anio_p = int(curso_p[0])
+        div_p = curso_p[2]
+        
+        asistencia_filtrada = asistencia_df[(asistencia_df['Año'] == anio_p) & (asistencia_df['División'] == div_p)].copy()
+
+        st.subheader(f"Registro de Asistencia - Curso {curso_p} ({fecha_asistencia.strftime('%d/%m/%Y')})")
+        
+        # Lista desplegable automática para la columna Estado
+        edited_asistencia = st.data_editor(
+            asistencia_filtrada[['ID_Alumno', 'Alumno', 'Estado', 'Observación_Preceptor']],
+            column_config={
+                "Estado": st.column_config.SelectboxColumn(
+                    "Estado de Asistencia",
+                    help="Selecciona el estado del alumno",
+                    width="medium",
+                    options=["Presente", "Ausente", "Tarde", "Justificada"],
+                    required=True
+                ),
+                "Observación_Preceptor": st.column_config.TextColumn("Observación Preceptor", width="large")
+            },
+            disabled=['ID_Alumno', 'Alumno'],
             use_container_width=True
         )
+
         if st.button("💾 Guardar Asistencia"):
-            st.success("Asistencia registrada correctamente.")
+            st.success(f"Asistencia del curso {curso_p} guardada correctamente para el día {fecha_asistencia.strftime('%d/%m/%Y')}.")
