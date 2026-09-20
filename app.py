@@ -99,24 +99,37 @@ if usuario_ingresado:
         anio_sel = int(curso_seleccionado.split("°")[0])
         div_sel = curso_seleccionado.split(" ")[1]
 
+        # Cargar los datos del curso
         notas_curso = notas_prof[(notas_prof['Año'] == anio_sel) & (notas_prof['División'] == div_sel)].copy()
 
         st.subheader(f"Planilla de Notas: {prof_data['Materia_Principal']} — {curso_seleccionado}")
         
-        # Configuración de columnas con selectores de notas del 1 al 10
+        # Editor interactivo de notas
         edited_df = st.data_editor(
             notas_curso[['ID_Alumno', 'Alumno', 'Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.', 'Promedio', 'Condición', 'Observación']],
             column_config={
                 "Nota_1er_Trim.": st.column_config.SelectboxColumn("1° Trimestre", options=list(range(1, 11)), required=True),
                 "Nota_2do_Trim.": st.column_config.SelectboxColumn("2° Trimestre", options=list(range(1, 11)), required=True),
                 "Nota_3er_Trim.": st.column_config.SelectboxColumn("3° Trimestre", options=list(range(1, 11)), required=True),
+                "Promedio": st.column_config.NumberColumn("Promedio", format="%.2f"),
+                "Condición": st.column_config.TextColumn("Condición")
             },
             disabled=['ID_Alumno', 'Alumno', 'Promedio', 'Condición'],
             use_container_width=True
         )
 
-        if st.button("💾 Guardar Calificaciones"):
-            st.success("Las calificaciones y observaciones se han guardado exitosamente.")
+        # Botón para procesar automáticos
+        if st.button("💾 Recalcular Promedios y Guardar"):
+            # Recalcular matemáticamente los promedios
+            edited_df['Promedio'] = (edited_df['Nota_1er_Trim.'] + edited_df['Nota_2do_Trim.'] + edited_df['Nota_3er_Trim.']) / 3
+            edited_df['Promedio'] = edited_df['Promedio'].round(2)
+            
+            # Asignar automáticamente Aprobado / Desaprobado
+            edited_df['Condición'] = edited_df['Promedio'].apply(lambda x: 'Aprobado' if x >= 6 else 'Desaprobado')
+            
+            # Forzar actualización en pantalla
+            st.success("¡Promedios y condiciones recalculados automáticamente!")
+            st.dataframe(edited_df[['ID_Alumno', 'Alumno', 'Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.', 'Promedio', 'Condición', 'Observación']], use_container_width=True)
 
     # --- VISTA PRECEPTORÍA ---
     elif user_info['rol'] == 'Preceptor':
@@ -135,22 +148,19 @@ if usuario_ingresado:
 
         st.subheader(f"Registro de Asistencia - Curso {curso_p} ({fecha_asistencia.strftime('%d/%m/%Y')})")
         
-        # Lista desplegable automática para la columna Estado
         edited_asistencia = st.data_editor(
             asistencia_filtrada[['ID_Alumno', 'Alumno', 'Estado', 'Observación_Preceptor']],
             column_config={
                 "Estado": st.column_config.SelectboxColumn(
                     "Estado de Asistencia",
-                    help="Selecciona el estado del alumno",
-                    width="medium",
                     options=["Presente", "Ausente", "Tarde", "Justificada"],
                     required=True
                 ),
-                "Observación_Preceptor": st.column_config.TextColumn("Observación Preceptor", width="large")
+                "Observación_Preceptor": st.column_config.TextColumn("Observación Preceptor")
             },
             disabled=['ID_Alumno', 'Alumno'],
             use_container_width=True
         )
 
         if st.button("💾 Guardar Asistencia"):
-            st.success(f"Asistencia del curso {curso_p} guardada correctamente para el día {fecha_asistencia.strftime('%d/%m/%Y')}.")
+            st.success(f"Asistencia guardada correctamente.")
