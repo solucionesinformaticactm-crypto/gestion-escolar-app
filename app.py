@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import urllib.parse
+import io
 
 # Configuración de página y estética Gris / Violeta
 st.set_page_config(
@@ -64,9 +65,9 @@ def generar_link_whatsapp(numero, mensaje):
     mensaje_codificado = urllib.parse.quote(mensaje)
     return f"https://wa.me/{num_limpio}?text={mensaje_codificado}"
 
-# Carga de datos desde la planilla Excel
+# Carga e inicialización de datos desde la planilla Excel
 @st.cache_data
-def cargar_datos():
+def cargar_datos_iniciales():
     excel_path = 'Gestion_Escolar_Secundaria.xlsx'
     alumnos = pd.read_excel(excel_path, sheet_name='Alumnos')
     profesores = pd.read_excel(excel_path, sheet_name='Profesores')
@@ -75,7 +76,13 @@ def cargar_datos():
     asistencia = pd.read_excel(excel_path, sheet_name='Asistencia')
     return alumnos, profesores, plan, notas, asistencia
 
-alumnos_df, profesores_df, plan_df, notas_df, asistencia_df = cargar_datos()
+alumnos_init, profesores_df, plan_df, notas_df, asistencia_df = cargar_datos_iniciales()
+
+# Mantener dataframe de alumnos en Session State para permitir modificaciones dinámicas
+if "alumnos_df" not in st.session_state:
+    st.session_state["alumnos_df"] = alumnos_init.copy()
+
+alumnos_df = st.session_state["alumnos_df"]
 
 # -----------------------------------------------------------------------------
 # 🔐 PANTALLA DE INICIO DE SESIÓN
@@ -145,14 +152,56 @@ else:
 
         st.markdown("---")
 
-        tab_alumnos, tab_notas, tab_profesores = st.tabs(["👨‍🎓 Padrón de Alumnos (Exclusivo)", "📊 Calificaciones Consolidadas", "👩‍🏫 Planta Docente"])
+        tab_alumnos, tab_notas, tab_profesores = st.tabs(["👨‍🎓 Padrón de Alumnos y Nuevo Ingreso", "📊 Calificaciones Consolidadas", "👩‍🏫 Planta Docente"])
 
         with tab_alumnos:
             st.subheader("👨‍🎓 Registro General de Alumnos y Legajos")
+
+            # Módulo de alta de nuevo alumno
+            with st.expander("➕ Registrar Nuevo Ingreso de Alumno", expanded=False):
+                st.markdown("##### Complete los datos del nuevo estudiante:")
+                
+                with st.form("form_nuevo_alumno"):
+                    col_n1, col_n2, col_n3 = st.columns(3)
+                    with col_n1:
+                        nuevo_nombre = st.text_input("Nombre:")
+                        nuevo_anio = st.number_input("Año (Curso):", min_value=1, max_value=6, value=1)
+                    with col_n2:
+                        nuevo_apellido = st.text_input("Apellido:")
+                        nueva_division = st.selectbox("División:", ["A", "B", "C"])
+                    with col_n3:
+                        nuevo_tutor = st.text_input("Tutor Responsable:", placeholder="Ej. María Pérez (Madre)")
+                        nuevo_telefono = st.text_input("Teléfono Contacto (WhatsApp):", placeholder="Ej. +5491112345678")
+                    
+                    btn_guardar_alumno = st.form_submit_button("💾 Guardar Nuevo Alumno")
+
+                if btn_guardar_alumno:
+                    if nuevo_nombre.strip() and nuevo_apellido.strip():
+                        # Generar ID automático de alumno
+                        nuevo_id = f"AL-00{len(alumnos_df) + 1}"
+                        
+                        nuevo_registro = {
+                            "ID_Alumno": nuevo_id,
+                            "Nombre": nuevo_nombre.strip(),
+                            "Apellido": nuevo_apellido.strip(),
+                            "Año": int(nuevo_anio),
+                            "División": nueva_division,
+                            "Tutor_Responsable": nuevo_tutor.strip(),
+                            "Telefono_Contacto": nuevo_telefono.strip()
+                        }
+                        
+                        # Agregar al DataFrame en memoria
+                        st.session_state["alumnos_df"] = pd.concat([st.session_state["alumnos_df"], pd.DataFrame([nuevo_registro])], ignore_index=True)
+                        st.success(f"✅ ¡Alumno **{nuevo_apellido}, {nuevo_nombre}** registrado con éxito! (ID Assigned: {nuevo_id})")
+                        st.rerun()
+                    else:
+                        st.error("⚠️ Por favor ingrese al menos el Nombre y Apellido del alumno.")
+
+            st.markdown("<br>", unsafe_allow_html=True)
             
+            # Filtro por búsqueda o curso
             col_f1, col_f2 = st.columns([1, 2])
             with col_f1:
-                # SOLUCIÓN DEL ERROR: Construcción segura de la lista de cursos
                 cursos_unicos = (
                     alumnos_df['Año'].astype(str).str.strip() + "°" + 
                     alumnos_df['División'].astype(str).str.strip()
@@ -179,6 +228,20 @@ else:
                 ]
 
             st.dataframe(alumnos_vista, use_container_width=True)
+
+            # Botón para descargar el Excel actualizado
+            st.markdown("---")
+            st.markdown("##### 📥 Exportar Registro de Alumnos a Excel")
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                alumnos_df.to_excel(writer, sheet_name='Alumnos', index=False)
+            
+            st.download_button(
+                label="📥 Descargar Planilla de Alumnos Actualizada (.xlsx)",
+                data=buffer.getvalue(),
+                file_name="Gestion_Escolar_Secundaria_Actualizado.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
         with tab_notas:
             st.subheader("📊 Calificaciones de Todas las Materias y Cursos")
