@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 import urllib.parse
 import io
 
@@ -76,13 +76,19 @@ def cargar_datos_iniciales():
     asistencia = pd.read_excel(excel_path, sheet_name='Asistencia')
     return alumnos, profesores, plan, notas, asistencia
 
-alumnos_init, profesores_df, plan_df, notas_df, asistencia_df = cargar_datos_iniciales()
+alumnos_init, profesores_df, plan_df, notas_init, asistencia_init = cargar_datos_iniciales()
 
-# Mantener dataframe de alumnos en Session State para permitir modificaciones dinámicas
+# Mantener dataframes en Session State para sincronización dinámica
 if "alumnos_df" not in st.session_state:
     st.session_state["alumnos_df"] = alumnos_init.copy()
+if "notas_df" not in st.session_state:
+    st.session_state["notas_df"] = notas_init.copy()
+if "asistencia_df" not in st.session_state:
+    st.session_state["asistencia_df"] = asistencia_init.copy()
 
 alumnos_df = st.session_state["alumnos_df"]
+notas_df = st.session_state["notas_df"]
+asistencia_df = st.session_state["asistencia_df"]
 
 # -----------------------------------------------------------------------------
 # 🔐 PANTALLA DE INICIO DE SESIÓN
@@ -157,45 +163,81 @@ else:
         with tab_alumnos:
             st.subheader("👨‍🎓 Registro General de Alumnos y Legajos")
 
-            # Módulo de alta de nuevo alumno
-            with st.expander("➕ Registrar Nuevo Ingreso de Alumno", expanded=False):
-                st.markdown("##### Complete los datos del nuevo estudiante:")
+            # Módulo de alta de nuevo alumno EXTENDIDO
+            with st.expander("➕ Registrar Nuevo Ingreso de Alumno (Legajo Completo)", expanded=False):
+                st.markdown("##### 📌 Datos Personales y Académicos:")
                 
-                with st.form("form_nuevo_alumno"):
-                    col_n1, col_n2, col_n3 = st.columns(3)
-                    with col_n1:
-                        nuevo_nombre = st.text_input("Nombre:")
+                with st.form("form_nuevo_alumno_extendido"):
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        nuevo_nombre = st.text_input("Nombre(s):")
+                        nuevo_dni = st.text_input("DNI / CIdentidad:", placeholder="Ej. 45123890")
                         nuevo_anio = st.number_input("Año (Curso):", min_value=1, max_value=6, value=1)
-                    with col_n2:
-                        nuevo_apellido = st.text_input("Apellido:")
+                        
+                    with c2:
+                        nuevo_apellido = st.text_input("Apellido(s):")
+                        fecha_nac = st.date_input("Fecha de Nacimiento:", value=date(2010, 1, 1))
                         nueva_division = st.selectbox("División:", ["A", "B", "C"])
-                    with col_n3:
-                        nuevo_tutor = st.text_input("Tutor Responsable:", placeholder="Ej. María Pérez (Madre)")
-                        nuevo_telefono = st.text_input("Teléfono Contacto (WhatsApp):", placeholder="Ej. +5491112345678")
+
+                    with c3:
+                        domicilio = st.text_input("Domicilio / Dirección:", placeholder="Ej. Av. San Martín 123")
+                        estado_legajo = st.selectbox("Estado de Ingreso:", ["Regular", "Pase / Traslado", "Puntual / Condicional"])
+                        localidad = st.text_input("Localidad / Barrio:", value="Centro")
+
+                    st.markdown("---")
+                    st.markdown("##### 👨‍👩‍👦 Datos del Tutor Responsable y Contacto:")
                     
-                    btn_guardar_alumno = st.form_submit_button("💾 Guardar Nuevo Alumno")
+                    ct1, ct2, ct3 = st.columns(3)
+                    with ct1:
+                        nuevo_tutor = st.text_input("Tutor Responsable (Nombre y Parentesco):", placeholder="Ej. María Pérez (Madre)")
+                    with ct2:
+                        nuevo_telefono = st.text_input("Teléfono Contacto (WhatsApp):", placeholder="Ej. +5491112345678")
+                    with ct3:
+                        email_tutor = st.text_input("Correo Electrónico Tutor:", placeholder="tutor@ejemplo.com")
+
+                    observaciones = st.text_area("Observaciones Sanitarias o Pedagógicas (Opcional):", placeholder="Ej. Presenta certificado médico...")
+
+                    btn_guardar_alumno = st.form_submit_button("💾 Guardar Legajo Completo")
 
                 if btn_guardar_alumno:
                     if nuevo_nombre.strip() and nuevo_apellido.strip():
-                        # Generar ID automático de alumno
                         nuevo_id = f"AL-00{len(alumnos_df) + 1}"
                         
                         nuevo_registro = {
                             "ID_Alumno": nuevo_id,
                             "Nombre": nuevo_nombre.strip(),
                             "Apellido": nuevo_apellido.strip(),
+                            "DNI": nuevo_dni.strip(),
+                            "Fecha_Nacimiento": fecha_nac.strftime('%d/%m/%Y'),
                             "Año": int(nuevo_anio),
                             "División": nueva_division,
+                            "Domicilio": domicilio.strip(),
+                            "Localidad": localidad.strip(),
+                            "Estado_Legajo": estado_legajo,
                             "Tutor_Responsable": nuevo_tutor.strip(),
-                            "Telefono_Contacto": nuevo_telefono.strip()
+                            "Telefono_Contacto": nuevo_telefono.strip(),
+                            "Email_Tutor": email_tutor.strip(),
+                            "Observaciones": observaciones.strip()
                         }
                         
-                        # Agregar al DataFrame en memoria
+                        # 1. Agregar a alumnos_df
                         st.session_state["alumnos_df"] = pd.concat([st.session_state["alumnos_df"], pd.DataFrame([nuevo_registro])], ignore_index=True)
-                        st.success(f"✅ ¡Alumno **{nuevo_apellido}, {nuevo_nombre}** registrado con éxito! (ID Assigned: {nuevo_id})")
+
+                        # 2. Sincronizar automáticamente en Asistencia
+                        nueva_asistencia = {
+                            "ID_Alumno": nuevo_id,
+                            "Alumno": f"{nuevo_apellido.strip()}, {nuevo_nombre.strip()}",
+                            "Año": int(nuevo_anio),
+                            "División": nueva_division,
+                            "Estado": "Presente",
+                            "Observación_Preceptor": "Nuevo Ingreso"
+                        }
+                        st.session_state["asistencia_df"] = pd.concat([st.session_state["asistencia_df"], pd.DataFrame([nueva_asistencia])], ignore_index=True)
+
+                        st.success(f"✅ ¡Legajo de **{nuevo_apellido}, {nuevo_nombre}** registrado con éxito! (ID: {nuevo_id})")
                         st.rerun()
                     else:
-                        st.error("⚠️ Por favor ingrese al menos el Nombre y Apellido del alumno.")
+                        st.error("⚠️ Por favor complete los campos obligatorios (Nombre y Apellido).")
 
             st.markdown("<br>", unsafe_allow_html=True)
             
@@ -211,7 +253,7 @@ else:
                 curso_filtro = st.selectbox("Filtrar por Curso:", cursos_disponibles)
 
             with col_f2:
-                buscar_alumno = st.text_input("Buscar por Nombre, Apellido o ID:", placeholder="Ej. Ortiz, AL-001...")
+                buscar_alumno = st.text_input("Buscar por Nombre, Apellido, DNI o ID:", placeholder="Ej. Ortiz, DNI, AL-001...")
 
             alumnos_vista = alumnos_df.copy()
             if curso_filtro != "Todos":
@@ -229,15 +271,17 @@ else:
 
             st.dataframe(alumnos_vista, use_container_width=True)
 
-            # Botón para descargar el Excel actualizado
+            # Botón para descargar la planilla actualizada
             st.markdown("---")
-            st.markdown("##### 📥 Exportar Registro de Alumnos a Excel")
+            st.markdown("##### 📥 Exportar Registro Completo de Alumnos a Excel")
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                alumnos_df.to_excel(writer, sheet_name='Alumnos', index=False)
+                st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
+                st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
+                st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
             
             st.download_button(
-                label="📥 Descargar Planilla de Alumnos Actualizada (.xlsx)",
+                label="📥 Descargar Sistema Completo de Alumnos (.xlsx)",
                 data=buffer.getvalue(),
                 file_name="Gestion_Escolar_Secundaria_Actualizado.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
