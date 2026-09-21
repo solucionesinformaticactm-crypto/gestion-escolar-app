@@ -334,7 +334,7 @@ else:
             st.subheader("👩‍🏫 Nómina de Profesores y Materias Asignadas")
             st.dataframe(profesores_df, use_container_width=True)
 
-    # --- VISTA DOCENTE ---
+    # --- VISTA DOCENTE (PROMEDIO EXCLUSIVO DE NOTAS CARGADAS) ---
     elif user_info['rol'] == 'Docente':
         prof_data = profesores_df[profesores_df['ID_Profesor'] == user_info['id']].iloc[0]
         st.title(f"📚 Gestión Académica — Prof. {prof_data['Nombre']} {prof_data['Apellido']}")
@@ -360,7 +360,7 @@ else:
             ].copy()
 
             st.subheader(f"Planilla de Evaluación: {prof_data['Materia_Principal']} — {curso_seleccionado}")
-            st.info("💡 Ingresa las notas de cada examen. Haz clic en '💾 Recalcular y Guardar' para calcular el Promedio Trimestral y Final.")
+            st.info("💡 Las casillas con '0' se ignoran. El promedio trimestral calcula automáticamente el promedio solo de las notas evaluadas.")
 
             if trimestre_trabajo == "1° Trimestre":
                 cols_sub = ['1T_Prueba1', '1T_Oral1', '1T_Prueba2', '1T_Oral2', '1T_Participacion', '1T_Carpeta']
@@ -393,14 +393,14 @@ else:
             )
 
             if st.button("💾 Recalcular y Guardar en Excel"):
-                # 1. Asegurar conversión limpia a tipos numéricos flotantes
+                # 1. Asegurar tipo numérico
                 for col in cols_sub:
                     edited_df[col] = pd.to_numeric(edited_df[col], errors='coerce').fillna(0.0)
 
-                # 2. Calcular el Promedio del Trimestre Activo
-                edited_df[col_trim_res] = edited_df[cols_sub].mean(axis=1).round(2)
+                # 2. OPCIÓN A: Reemplazar el 0 por NaN temporalmente para ignorar casilleros no evaluados en el promedio
+                edited_df[col_trim_res] = edited_df[cols_sub].replace(0, pd.NA).mean(axis=1).round(2).fillna(0.0)
 
-                # 3. Mantener los valores de los otros trimestres desde la sesión
+                # 3. Recuperar las notas de los demás trimestres
                 for t_col in ['Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.']:
                     if t_col != col_trim_res:
                         edited_df[t_col] = pd.to_numeric(
@@ -415,11 +415,11 @@ else:
                 edited_df['Promedio'] = edited_df['Promedio'].round(2)
                 edited_df['Condición'] = edited_df['Promedio'].apply(lambda x: 'Aprobado' if x >= 6 else 'Desaprobado')
 
-                # 5. Actualización segura columna por columna evitando LossySetitemError
+                # 5. Guardar en session_state columna a columna (.values)
                 for col in edited_df.columns:
                     st.session_state["notas_df"].loc[edited_df.index, col] = edited_df[col].values
 
-                # 6. Guardar físicamente en el archivo Excel
+                # 6. Guardar permanentemente en Excel
                 with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
                     st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
                     st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
@@ -427,7 +427,7 @@ else:
                     profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
                     plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
 
-                st.success("✅ ¡Notas y promedios calculados y guardados correctamente!")
+                st.success("✅ ¡Notas y promedios recalculados y guardados correctamente en Excel!")
                 st.rerun()
 
         with tab_enviar_informe:
