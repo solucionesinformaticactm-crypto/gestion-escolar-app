@@ -6,7 +6,7 @@ import io
 
 # Configuración de página y estética Gris / Violeta
 st.set_page_config(
-    page_title="Sistema de Gestión Escolar",
+    page_title="Sistema de Gestión Escolar Integral",
     page_icon="🎓",
     layout="wide"
 )
@@ -66,7 +66,7 @@ def generar_link_whatsapp(numero, mensaje):
     mensaje_codificado = urllib.parse.quote(mensaje)
     return f"https://wa.me/{num_limpio}?text={mensaje_codificado}"
 
-# Función generadora del Boletín de Calificaciones Institucional
+# Función generadora del Boletín de Calificaciones
 def generar_html_boletin(alumno_id):
     alumno_info = st.session_state["alumnos_df"][st.session_state["alumnos_df"]['ID_Alumno'] == alumno_id]
     if alumno_info.empty:
@@ -152,10 +152,26 @@ def cargar_datos_iniciales():
             "ID_Parte", "ID_Alumno", "Alumno", "Año", "División", 
             "Fecha", "Tipo_Evento", "Motivo_Detalle", "Registrado_Por"
         ])
-        
-    return alumnos, profesores, plan, notas, asistencia, conducta
 
-alumnos_init, profesores_df, plan_df, notas_init, asistencia_init, conducta_init = cargar_datos_iniciales()
+    try:
+        agenda = pd.read_excel(EXCEL_FILE, sheet_name='Agenda')
+    except Exception:
+        agenda = pd.DataFrame(columns=[
+            "ID_Evento", "Fecha", "Año", "División", "Materia", 
+            "Tipo_Evento", "Título_Descripción", "Publicado_Por"
+        ])
+
+    try:
+        cuotas = pd.read_excel(EXCEL_FILE, sheet_name='Cuotas')
+    except Exception:
+        cuotas = pd.DataFrame(columns=[
+            "ID_Pago", "ID_Alumno", "Alumno", "Año", "División", 
+            "Mes_Cuota", "Monto", "Estado_Pago", "Fecha_Pago"
+        ])
+        
+    return alumnos, profesores, plan, notas, asistencia, conducta, agenda, cuotas
+
+alumnos_init, profesores_df, plan_df, notas_init, asistencia_init, conducta_init, agenda_init, cuotas_init = cargar_datos_iniciales()
 
 if "alumnos_df" not in st.session_state:
     st.session_state["alumnos_df"] = alumnos_init.copy()
@@ -165,6 +181,10 @@ if "asistencia_df" not in st.session_state:
     st.session_state["asistencia_df"] = asistencia_init.copy()
 if "conducta_df" not in st.session_state:
     st.session_state["conducta_df"] = conducta_init.copy()
+if "agenda_df" not in st.session_state:
+    st.session_state["agenda_df"] = agenda_init.copy()
+if "cuotas_df" not in st.session_state:
+    st.session_state["cuotas_df"] = cuotas_init.copy()
 
 cols_eval = [
     '1T_Prueba1', '1T_Oral1', '1T_Prueba2', '1T_Oral2', '1T_Participacion', '1T_Carpeta',
@@ -177,6 +197,18 @@ for col in columnas_numericas_notas:
     if col not in st.session_state["notas_df"].columns:
         st.session_state["notas_df"][col] = 0.0
     st.session_state["notas_df"][col] = pd.to_numeric(st.session_state["notas_df"][col], errors='coerce').fillna(0.0).astype(float)
+
+# Función auxiliar para guardar todas las pestañas de Excel
+def guardar_excel_completo():
+    with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
+        st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
+        st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
+        st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
+        st.session_state["conducta_df"].to_excel(writer, sheet_name='Conducta', index=False)
+        st.session_state["agenda_df"].to_excel(writer, sheet_name='Agenda', index=False)
+        st.session_state["cuotas_df"].to_excel(writer, sheet_name='Cuotas', index=False)
+        profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
+        plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
 
 # -----------------------------------------------------------------------------
 # 🔐 PANTALLA DE INICIO DE SESIÓN
@@ -232,26 +264,33 @@ else:
     # --- VISTA DIRECTIVO ---
     if user_info['rol'] == 'Directivo':
         st.title("🏛️ Panel de Control e Indicadores Institucionales")
-        st.write("Visión general del rendimiento escolar, padrón de alumnos, asistencia y partes disciplinarios.")
+        st.write("Visión general del rendimiento escolar, asistencia, partes disciplinarios, agenda y cobranzas.")
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             st.markdown(f'<div class="metric-card"><h4>Total Alumnos</h4><h2>{len(st.session_state["alumnos_df"])}</h2></div>', unsafe_allow_html=True)
         with col2:
             st.markdown(f'<div class="metric-card"><h4>Total Profesores</h4><h2>{len(profesores_df)}</h2></div>', unsafe_allow_html=True)
         with col3:
-            st.markdown('<div class="metric-card"><h4>Promedio General</h4><h2>7.07</h2></div>', unsafe_allow_html=True)
+            prom_gen = round(st.session_state["notas_df"]['Promedio'].mean(), 2) if not st.session_state["notas_df"].empty else 0
+            st.markdown(f'<div class="metric-card"><h4>Promedio General</h4><h2>{prom_gen}</h2></div>', unsafe_allow_html=True)
         with col4:
             st.markdown(f'<div class="metric-card"><h4>Partes Conducta</h4><h2>{len(st.session_state["conducta_df"])}</h2></div>', unsafe_allow_html=True)
+        with col5:
+            rec_cuotas = st.session_state["cuotas_df"][st.session_state["cuotas_df"]['Estado_Pago'] == 'Pagado']['Monto'].sum() if not st.session_state["cuotas_df"].empty else 0
+            st.markdown(f'<div class="metric-card"><h4>Cobranza Cuotas</h4><h2>${rec_cuotas:,.0f}</h2></div>', unsafe_allow_html=True)
 
         st.markdown("---")
 
-        tab_alumnos, tab_notas, tab_profesores, tab_boletin, tab_conducta_dir = st.tabs([
-            "👨‍🎓 Padrón de Alumnos y Nuevo Ingreso", 
-            "📊 Calificaciones Consolidadas", 
+        tab_alumnos, tab_notas, tab_profesores, tab_boletin, tab_conducta_dir, tab_graficos, tab_agenda_dir, tab_cuotas = st.tabs([
+            "👨‍🎓 Padrón de Alumnos", 
+            "📊 Calificaciones", 
             "👩‍🏫 Planta Docente",
-            "📄 Boletín Oficial (PDF / Impresión)",
-            "📋 Registro de Conducta y Disciplina"
+            "📄 Boletín Oficial",
+            "📋 Conducta",
+            "📈 Tableros Gráficos",
+            "📆 Agenda Escolar",
+            "💳 Aranceles y Cuotas"
         ])
 
         with tab_alumnos:
@@ -357,14 +396,7 @@ else:
                         }
                         st.session_state["asistencia_df"] = pd.concat([st.session_state["asistencia_df"], pd.DataFrame([nueva_asistencia])], ignore_index=True)
 
-                        with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
-                            st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
-                            st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
-                            st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
-                            st.session_state["conducta_df"].to_excel(writer, sheet_name='Conducta', index=False)
-                            profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
-                            plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
-
+                        guardar_excel_completo()
                         st.success(f"✅ ¡Alumno **{apellido.strip()}, {nombre.strip()}** guardado permanentemente en el Excel!")
                         st.rerun()
                     else:
@@ -408,6 +440,8 @@ else:
                 st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
                 st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
                 st.session_state["conducta_df"].to_excel(writer, sheet_name='Conducta', index=False)
+                st.session_state["agenda_df"].to_excel(writer, sheet_name='Agenda', index=False)
+                st.session_state["cuotas_df"].to_excel(writer, sheet_name='Cuotas', index=False)
             
             st.download_button(
                 label="📥 Descargar Planilla Excel Actualizada (.xlsx)",
@@ -458,13 +492,157 @@ else:
             st.subheader("📋 Consolidado de Partes Disciplinarios e Infracciones")
             st.dataframe(st.session_state["conducta_df"], use_container_width=True)
 
+        # -----------------------------------------------------------------------------
+        # OPTION 1: 📈 TABLEROS GRÁFICOS Y ESTADÍSTICAS AVANZADAS (DIRECTIVOS)
+        # -----------------------------------------------------------------------------
+        with tab_graficos:
+            st.subheader("📈 Indicadores Institucionales y Estadísticas Avanzadas")
+
+            g_col1, g_col2 = st.columns(2)
+
+            with g_col1:
+                st.markdown("##### 📊 Promedio General por Materia")
+                if not st.session_state["notas_df"].empty and 'Materia' in st.session_state["notas_df"].columns:
+                    promedios_materia = st.session_state["notas_df"].groupby('Materia')['Promedio'].mean().round(2)
+                    st.bar_chart(promedios_materia)
+                else:
+                    st.info("Sin datos suficientes de calificaciones para graficar.")
+
+            with g_col2:
+                st.markdown("##### 📋 Distribución de Inasistencias por Estado")
+                if not st.session_state["asistencia_df"].empty and 'Estado' in st.session_state["asistencia_df"].columns:
+                    conteo_asistencia = st.session_state["asistencia_df"]['Estado'].value_counts()
+                    st.bar_chart(conteo_asistencia)
+                else:
+                    st.info("Sin datos de asistencia registrados.")
+
+            st.markdown("---")
+            g_col3, g_col4 = st.columns(2)
+
+            with g_col3:
+                st.markdown("##### 🚨 Partes Disciplinarios por Categoria")
+                if not st.session_state["conducta_df"].empty and 'Tipo_Evento' in st.session_state["conducta_df"].columns:
+                    conteo_conducta = st.session_state["conducta_df"]['Tipo_Evento'].value_counts()
+                    st.bar_chart(conteo_conducta)
+                else:
+                    st.info("Sin partes de conducta registrados.")
+
+            with g_col4:
+                st.markdown("##### 💳 Estado de Cobranza de Aranceles")
+                if not st.session_state["cuotas_df"].empty and 'Estado_Pago' in st.session_state["cuotas_df"].columns:
+                    conteo_cuotas = st.session_state["cuotas_df"]['Estado_Pago'].value_counts()
+                    st.bar_chart(conteo_cuotas)
+                else:
+                    st.info("Sin registros de aranceles o cuotas.")
+
+        # -----------------------------------------------------------------------------
+        # OPTION 2: 📆 AGENDA ESCOLAR Y CALENDARIO DE EVALUACIONES
+        # -----------------------------------------------------------------------------
+        with tab_agenda_dir:
+            st.subheader("📆 Cronograma General de Exámenes y Eventos Institucionales")
+
+            st.dataframe(st.session_state["agenda_df"], use_container_width=True)
+
+        # -----------------------------------------------------------------------------
+        # OPTION 3: 💳 MÓDULO DE ARANCELES, CUOTAS Y COBRANZAS
+        # -----------------------------------------------------------------------------
+        with tab_cuotas:
+            st.subheader("💳 Gestión de Aranceles, Cuotas y Cooperadora")
+
+            with st.expander("➕ Registrar Nuevo Cobro de Cuota / Arancel", expanded=False):
+                with st.form("form_nuevo_cobro"):
+                    c_col1, c_col2 = st.columns(2)
+                    with c_col1:
+                        curso_cuota_sel = st.selectbox("Seleccionar Curso:", sorted(list(cursos_unicos)), key="cuota_curso")
+                        partes_cuota = curso_cuota_sel.split("°")
+                        anio_cuota, div_cuota = int(partes_cuota[0]), partes_cuota[1]
+
+                        alumnos_cuota = st.session_state["alumnos_df"][
+                            (st.session_state["alumnos_df"]['Año'] == anio_cuota) & 
+                            (st.session_state["alumnos_df"]['División'] == div_cuota)
+                        ]
+                        
+                        if not alumnos_cuota.empty:
+                            mapa_alumnos_cuota = {
+                                f"{r['Apellido']}, {r['Nombre']}": r['ID_Alumno'] 
+                                for _, r in alumnos_cuota.iterrows()
+                            }
+                            alumno_cuota_nom = st.selectbox("Seleccionar Alumno:", list(mapa_alumnos_cuota.keys()))
+                            id_alumno_cuota = mapa_alumnos_cuota[alumno_cuota_nom]
+                        else:
+                            id_alumno_cuota = None
+
+                    with c_col2:
+                        mes_cuota = st.selectbox("Mes de Cuota:", ["Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre", "Matrícula"])
+                        monto_cuota = st.number_input("Monto ($):", min_value=0.0, value=15000.0, step=1000.0)
+                        estado_pago = st.selectbox("Estado del Pago:", ["Pagado", "Pendiente", "Atrasado"])
+                        fecha_cobro = st.date_input("Fecha del Pago:", datetime.now())
+
+                    btn_guardar_cuota = st.form_submit_button("💾 Registrar Cobro")
+
+                if btn_guardar_cuota and id_alumno_cuota:
+                    id_pago = f"PAG-{len(st.session_state['cuotas_df']) + 1:03d}"
+                    nuevo_pago = {
+                        "ID_Pago": id_pago,
+                        "ID_Alumno": id_alumno_cuota,
+                        "Alumno": alumno_cuota_nom,
+                        "Año": anio_cuota,
+                        "División": div_cuota,
+                        "Mes_Cuota": mes_cuota,
+                        "Monto": monto_cuota,
+                        "Estado_Pago": estado_pago,
+                        "Fecha_Pago": fecha_cobro.strftime('%d/%m/%Y')
+                    }
+                    st.session_state["cuotas_df"] = pd.concat([
+                        st.session_state["cuotas_df"], 
+                        pd.DataFrame([nuevo_pago])
+                    ], ignore_index=True)
+
+                    guardar_excel_completo()
+                    st.success(f"✅ ¡Cobro de {mes_cuota} registrado exitosamente!")
+                    st.rerun()
+
+            st.markdown("---")
+            st.subheader("📋 Estado de Pagos y Notificación a Tutores")
+            st.dataframe(st.session_state["cuotas_df"], use_container_width=True)
+
+            if not st.session_state["cuotas_df"].empty:
+                pagos_pendientes = st.session_state["cuotas_df"][st.session_state["cuotas_df"]['Estado_Pago'] != 'Pagado']
+                if not pagos_pendientes.empty:
+                    pago_sel_id = st.selectbox("Seleccionar Pago para Notificar Recordatorio:", pagos_pendientes['ID_Pago'].tolist())
+                    row_pago = pagos_pendientes[pagos_pendientes['ID_Pago'] == pago_sel_id].iloc[0]
+
+                    info_al_cuota = st.session_state["alumnos_df"][st.session_state["alumnos_df"]['ID_Alumno'] == row_pago['ID_Alumno']]
+                    if not info_al_cuota.empty:
+                        info_al_cuota = info_al_cuota.iloc[0]
+                        tutor_nom = f"{info_al_cuota.get('Nombre_Tutor', '')} {info_al_cuota.get('Apellido_Tutor', '')}".strip() or info_al_cuota.get('Tutor_Responsab', 'Tutor/a')
+                        tel_contacto = info_al_cuota.get('Telefono_Contacto', '')
+
+                        msg_cuota = (
+                            f"Estimado/a {tutor_nom}, le enviamos un recordatorio desde la Administración Escolar "
+                            f"respecto al arancel correspondiente al mes de *{row_pago['Mes_Cuota']}* "
+                            f"del estudiante *{row_pago['Alumno']}* por un monto de *${row_pago['Monto']:,.2f}*.\n\n"
+                            f"Estado actual: *{row_pago['Estado_Pago']}*.\n"
+                            f"Agradecemos su regularización."
+                        )
+
+                        st.text_area("Mensaje de Recordatorio de Pago:", value=msg_cuota, height=120)
+
+                        if pd.notna(tel_contacto) and str(tel_contacto) != '':
+                            link_wa_cuota = generar_link_whatsapp(tel_contacto, msg_cuota)
+                            st.markdown(f'<a href="{link_wa_cuota}" target="_blank"><button style="background-color:#25D366; color:white; padding:8px 16px; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">📲 Enviar Recordatorio por WhatsApp</button></a>', unsafe_allow_html=True)
+
     # --- VISTA DOCENTE ---
     elif user_info['rol'] == 'Docente':
         prof_data = profesores_df[profesores_df['ID_Profesor'] == user_info['id']].iloc[0]
         st.title(f"📚 Gestión Académica — Prof. {prof_data['Nombre']} {prof_data['Apellido']}")
         st.markdown(f"**Materia Asignada:** `{prof_data['Materia_Principal']}`")
 
-        tab_cargar_notas, tab_enviar_informe = st.tabs(["📝 Cargar/Modificar Notas", "📲 Enviar Informe Trimestral WhatsApp"])
+        tab_cargar_notas, tab_enviar_informe, tab_agenda_doc = st.tabs([
+            "📝 Cargar/Modificar Notas", 
+            "📲 Enviar Informe Trimestral WhatsApp",
+            "📆 Cargar Exámenes a Agenda Escolar"
+        ])
 
         notas_prof = st.session_state["notas_df"][st.session_state["notas_df"]['ID_Profesor'] == user_info['id']]
         cursos = notas_prof[['Año', 'División']].drop_duplicates()
@@ -542,14 +720,7 @@ else:
                     else:
                         st.session_state["notas_df"].loc[edited_df.index, col] = edited_df[col].values
 
-                with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
-                    st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
-                    st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
-                    st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
-                    st.session_state["conducta_df"].to_excel(writer, sheet_name='Conducta', index=False)
-                    profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
-                    plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
-
+                guardar_excel_completo()
                 st.success("✅ ¡Notas y promedios recalculados y guardados correctamente en Excel!")
                 st.rerun()
 
@@ -592,11 +763,60 @@ else:
                 else:
                     st.warning("⚠️ El alumno no tiene un número de teléfono registrado en el Excel.")
 
+        # -----------------------------------------------------------------------------
+        # OPTION 2: 📆 CARGA DE EVALUACIONES A LA AGENDA (DOCENTE)
+        # -----------------------------------------------------------------------------
+        with tab_agenda_doc:
+            st.subheader("📆 Publicar Evaluación o Entrega en la Agenda Escolar")
+
+            with st.form("form_nueva_evaluacion_agenda"):
+                a_col1, a_col2 = st.columns(2)
+                with a_col1:
+                    curso_agenda = st.selectbox("Curso:", opciones_cursos)
+                    tipo_eval = st.selectbox("Tipo de Evento:", ["Prueba Escrita", "Lección Oral", "Entrega de Trabajo Práctico", "Exposición Groupal"])
+                with a_col2:
+                    fecha_eval = st.date_input("Fecha programada:", datetime.now())
+                    titulo_eval = st.text_input("Tema / Contenidos a Evaluar:", placeholder="Ej. Capítulos 1 al 3 - Historia Argentina")
+
+                btn_agendar = st.form_submit_button("🗓️ Guardar Examen en Agenda")
+
+            if btn_agendar:
+                if titulo_eval.strip():
+                    anio_ag = int(curso_agenda.split("°")[0])
+                    div_ag = curso_agenda.split(" ")[1]
+
+                    id_ev = f"EVA-{len(st.session_state['agenda_df']) + 1:03d}"
+                    nuevo_evento = {
+                        "ID_Evento": id_ev,
+                        "Fecha": fecha_eval.strftime('%d/%m/%Y'),
+                        "Año": anio_ag,
+                        "División": div_ag,
+                        "Materia": prof_data['Materia_Principal'],
+                        "Tipo_Evento": tipo_eval,
+                        "Título_Descripción": titulo_eval.strip(),
+                        "Publicado_Por": f"Prof. {prof_data['Nombre']} {prof_data['Apellido']}"
+                    }
+
+                    st.session_state["agenda_df"] = pd.concat([
+                        st.session_state["agenda_df"], 
+                        pd.DataFrame([nuevo_evento])
+                    ], ignore_index=True)
+
+                    guardar_excel_completo()
+                    st.success(f"✅ ¡Evaluación agendada para el {fecha_eval.strftime('%d/%m/%Y')}!")
+                    st.rerun()
+                else:
+                    st.error("⚠️ Ingrese el tema o descripción de la evaluación.")
+
+            st.markdown("---")
+            st.markdown("##### 📅 Próximas Evaluaciones Agendadas:")
+            st.dataframe(st.session_state["agenda_df"][st.session_state["agenda_df"]['Materia'] == prof_data['Materia_Principal']], use_container_width=True)
+
     # --- VISTA PRECEPTORÍA ---
     elif user_info['rol'] == 'Preceptor':
-        st.title("📋 Control Diario, Asistencia y Conducta Escolar")
+        st.title("📋 Control Diario, Asistencia, Conducta y Agenda")
         
-        tab_asistencia, tab_conducta = st.tabs(["📋 Tomar Asistencia", "📝 Partes Disciplinarios y Conducta"])
+        tab_asistencia, tab_conducta, tab_agenda_prec = st.tabs(["📋 Tomar Asistencia", "📝 Partes Disciplinarios", "📆 Agenda Escolar"])
 
         with tab_asistencia:
             col_c1, col_c2 = st.columns(2)
@@ -631,14 +851,7 @@ else:
 
             if st.button("💾 Guardar Asistencia en Excel"):
                 st.session_state["asistencia_df"].update(edited_asistencia)
-                with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
-                    st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
-                    st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
-                    st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
-                    st.session_state["conducta_df"].to_excel(writer, sheet_name='Conducta', index=False)
-                    profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
-                    plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
-
+                guardar_excel_completo()
                 st.success("✅ Asistencia guardada en el Excel.")
 
             st.markdown("---")
@@ -746,15 +959,7 @@ else:
                                 pd.DataFrame([nuevo_parte])
                             ], ignore_index=True)
 
-                            # Guardar físicamente en Excel
-                            with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
-                                st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
-                                st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
-                                st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
-                                st.session_state["conducta_df"].to_excel(writer, sheet_name='Conducta', index=False)
-                                profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
-                                plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
-
+                            guardar_excel_completo()
                             st.success(f"✅ ¡Parte registrado exitosamente bajo el ID `{id_parte}`!")
                             st.rerun()
                         else:
@@ -791,5 +996,7 @@ else:
                         st.markdown(f'<a href="{link_wa_c}" target="_blank"><button style="background-color:#25D366; color:white; padding:8px 16px; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">📲 Notificar por WhatsApp</button></a>', unsafe_allow_html=True)
                     else:
                         st.warning("⚠️ Sin teléfono de contacto registrado para el tutor.")
-            else:
-                st.info("Aún no hay partes disciplinarios registrados en el sistema.")
+
+        with tab_agenda_prec:
+            st.subheader("📆 Calendario General de Exámenes y Eventos por Curso")
+            st.dataframe(st.session_state["agenda_df"], use_container_width=True)
