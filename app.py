@@ -66,6 +66,77 @@ def generar_link_whatsapp(numero, mensaje):
     mensaje_codificado = urllib.parse.quote(mensaje)
     return f"https://wa.me/{num_limpio}?text={mensaje_codificado}"
 
+# Función generadora del Boletín de Calificaciones Institucional
+def generar_html_boletin(alumno_id):
+    alumno_info = st.session_state["alumnos_df"][st.session_state["alumnos_df"]['ID_Alumno'] == alumno_id]
+    if alumno_info.empty:
+        return "<p>Alumno no encontrado</p>"
+    
+    alumno = alumno_info.iloc[0]
+    notas_alumno = st.session_state["notas_df"][st.session_state["notas_df"]['ID_Alumno'] == alumno_id]
+    
+    filas = ""
+    for _, row in notas_alumno.iterrows():
+        n1 = f"{row['Nota_1er_Trim.']:.2f}" if row['Nota_1er_Trim.'] > 0 else "-"
+        n2 = f"{row['Nota_2do_Trim.']:.2f}" if row['Nota_2do_Trim.'] > 0 else "-"
+        n3 = f"{row['Nota_3er_Trim.']:.2f}" if row['Nota_3er_Trim.'] > 0 else "-"
+        prom = f"{row['Promedio']:.2f}" if row['Promedio'] > 0 else "-"
+        cond = row['Condición'] if row['Promedio'] > 0 else "En Cursada"
+        color_cond = "#196F3D" if cond == "Aprobado" else "#922B21"
+        
+        filas += f"""
+        <tr>
+            <td style="text-align: left; font-weight: bold; padding: 6px; border: 1px solid #ddd;">{row.get('Materia', 'Asignatura')}</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">{n1}</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">{n2}</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">{n3}</td>
+            <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold;">{prom}</td>
+            <td style="padding: 6px; border: 1px solid #ddd; color: {color_cond}; font-weight: bold;">{cond}</td>
+        </tr>
+        """
+
+    html_content = f"""
+    <div style="background-color: white; padding: 20px; border-radius: 8px; font-family: Arial, sans-serif; border: 2px solid #6C3483;">
+        <div style="text-align: center; border-bottom: 2px solid #6C3483; padding-bottom: 10px; margin-bottom: 15px;">
+            <h2 style="color: #512E5F; margin: 0;">BOLETÍN OFICIAL DE CALIFICACIONES</h2>
+            <h4 style="color: #555; margin: 5px 0 0 0;">Ciclo Lectivo 2026 — Nivel Secundario</h4>
+        </div>
+        
+        <table style="width: 100%; margin-bottom: 15px; font-size: 13px;">
+            <tr>
+                <td><strong>Estudiante:</strong> {alumno['Apellido']}, {alumno['Nombre']}</td>
+                <td><strong>DNI:</strong> {alumno.get('DNI', '-')}</td>
+            </tr>
+            <tr>
+                <td><strong>Curso:</strong> {alumno['Año']}° "{alumno['División']}" ({alumno.get('Turno', 'Mañana')})</td>
+                <td><strong>Tutor:</strong> {alumno.get('Nombre_Tutor', '')} {alumno.get('Apellido_Tutor', '')}</td>
+            </tr>
+        </table>
+
+        <table style="width: 100%; border-collapse: collapse; text-align: center; font-size: 12px;">
+            <thead>
+                <tr style="background-color: #6C3483; color: white;">
+                    <th style="padding: 8px; text-align: left;">Asignatura</th>
+                    <th style="padding: 8px;">1° Trim.</th>
+                    <th style="padding: 8px;">2° Trim.</th>
+                    <th style="padding: 8px;">3° Trim.</th>
+                    <th style="padding: 8px;">Prom. Final</th>
+                    <th style="padding: 8px;">Condición</th>
+                </tr>
+            </thead>
+            <tbody>
+                {filas}
+            </tbody>
+        </table>
+        
+        <div style="margin-top: 30px; display: flex; justify-content: space-around; text-align: center; font-size: 11px; color: #555;">
+            <div>_______________________<br>Firma Tutor</div>
+            <div>_______________________<br>Sello y Firma Dirección</div>
+        </div>
+    </div>
+    """
+    return html_content
+
 @st.cache_data
 def cargar_datos_iniciales():
     alumnos = pd.read_excel(EXCEL_FILE, sheet_name='Alumnos')
@@ -84,14 +155,12 @@ if "notas_df" not in st.session_state:
 if "asistencia_df" not in st.session_state:
     st.session_state["asistencia_df"] = asistencia_init.copy()
 
-# Columnas de evaluaciones continuas por trimestre
 cols_eval = [
     '1T_Prueba1', '1T_Oral1', '1T_Prueba2', '1T_Oral2', '1T_Participacion', '1T_Carpeta',
     '2T_Prueba1', '2T_Oral1', '2T_Prueba2', '2T_Oral2', '2T_Participacion', '2T_Carpeta',
     '3T_Prueba1', '3T_Oral1', '3T_Prueba2', '3T_Oral2', '3T_Participacion', '3T_Carpeta'
 ]
 
-# Garantizar que todas las columnas numéricas de notas sean float64 para evitar LossySetitemError
 columnas_numericas_notas = cols_eval + ['Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.', 'Promedio']
 for col in columnas_numericas_notas:
     if col not in st.session_state["notas_df"].columns:
@@ -166,7 +235,12 @@ else:
 
         st.markdown("---")
 
-        tab_alumnos, tab_notas, tab_profesores = st.tabs(["👨‍🎓 Padrón de Alumnos y Nuevo Ingreso", "📊 Calificaciones Consolidadas", "👩‍🏫 Planta Docente"])
+        tab_alumnos, tab_notas, tab_profesores, tab_boletin = st.tabs([
+            "👨‍🎓 Padrón de Alumnos y Nuevo Ingreso", 
+            "📊 Calificaciones Consolidadas", 
+            "👩‍🏫 Planta Docente",
+            "📄 Boletín Oficial (PDF / Impresión)"
+        ])
 
         with tab_alumnos:
             st.subheader("👨‍🎓 Registro General de Alumnos y Legajos")
@@ -336,6 +410,36 @@ else:
             st.subheader("👩‍🏫 Nómina de Profesores y Materias Asignadas")
             st.dataframe(profesores_df, use_container_width=True)
 
+        with tab_boletin:
+            st.subheader("📄 Generación e Impresión del Boletín Oficial")
+            
+            col_b1, col_b2 = st.columns([1, 2])
+            with col_b1:
+                curso_b = st.selectbox("Seleccionar Curso para Generar Boletín:", sorted(list(cursos_unicos)), key="bol_curso")
+                partes_b = curso_b.split("°")
+                anio_b, div_b = int(partes_b[0]), partes_b[1]
+                
+                alumnos_curso_b = st.session_state["alumnos_df"][
+                    (st.session_state["alumnos_df"]['Año'] == anio_b) & 
+                    (st.session_state["alumnos_df"]['División'] == div_b)
+                ]
+                
+                if not alumnos_curso_b.empty:
+                    opciones_alumnos_b = {
+                        f"{r['Apellido']}, {r['Nombre']} (DNI: {r.get('DNI', '-')})": r['ID_Alumno'] 
+                        for _, r in alumnos_curso_b.iterrows()
+                    }
+                    alumno_sel_nom = st.selectbox("Seleccionar Estudiante:", list(opciones_alumnos_b.keys()))
+                    id_alumno_sel = opciones_alumnos_b[alumno_sel_nom]
+                else:
+                    id_alumno_sel = None
+                    st.warning("No hay alumnos registrados en este curso.")
+
+            with col_b2:
+                if id_alumno_sel:
+                    boletin_html = generar_html_boletin(id_alumno_sel)
+                    st.components.v1.html(boletin_html, height=450, scrolling=True)
+
     # --- VISTA DOCENTE ---
     elif user_info['rol'] == 'Docente':
         prof_data = profesores_df[profesores_df['ID_Profesor'] == user_info['id']].iloc[0]
@@ -395,14 +499,11 @@ else:
             )
 
             if st.button("💾 Recalcular y Guardar en Excel"):
-                # 1. Asegurar tipo numérico float64 en los parciales editados
                 for col in cols_sub:
                     edited_df[col] = pd.to_numeric(edited_df[col], errors='coerce').fillna(0.0).astype(float)
 
-                # 2. Reemplazar 0 por NaN temporalmente para promediar solo casillas evaluadas
                 edited_df[col_trim_res] = edited_df[cols_sub].replace(0, pd.NA).mean(axis=1).round(2).fillna(0.0).astype(float)
 
-                # 3. Cargar y asegurar flotantes para los otros trimestres
                 for t_col in ['Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.']:
                     if t_col != col_trim_res:
                         edited_df[t_col] = pd.to_numeric(
@@ -410,14 +511,12 @@ else:
                             errors='coerce'
                         ).fillna(0.0).astype(float)
 
-                # 4. Recalcular Promedio Final Anual y Condición
                 edited_df['Promedio'] = (
                     edited_df['Nota_1er_Trim.'] + edited_df['Nota_2do_Trim.'] + edited_df['Nota_3er_Trim.']
                 ) / 3
                 edited_df['Promedio'] = edited_df['Promedio'].round(2).astype(float)
                 edited_df['Condición'] = edited_df['Promedio'].apply(lambda x: 'Aprobado' if x >= 6 else 'Desaprobado')
 
-                # 5. Actualización limpia columna por columna convirtiendo previamente la serie a float en st.session_state
                 for col in edited_df.columns:
                     if col in columnas_numericas_notas:
                         st.session_state["notas_df"][col] = st.session_state["notas_df"][col].astype(float)
@@ -425,7 +524,6 @@ else:
                     else:
                         st.session_state["notas_df"].loc[edited_df.index, col] = edited_df[col].values
 
-                # 6. Guardar permanentemente en Excel
                 with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
                     st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
                     st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
