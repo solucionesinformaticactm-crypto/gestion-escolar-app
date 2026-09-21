@@ -144,9 +144,18 @@ def cargar_datos_iniciales():
     plan = pd.read_excel(EXCEL_FILE, sheet_name='Plan_Materias')
     notas = pd.read_excel(EXCEL_FILE, sheet_name='Notas')
     asistencia = pd.read_excel(EXCEL_FILE, sheet_name='Asistencia')
-    return alumnos, profesores, plan, notas, asistencia
+    
+    try:
+        conducta = pd.read_excel(EXCEL_FILE, sheet_name='Conducta')
+    except Exception:
+        conducta = pd.DataFrame(columns=[
+            "ID_Parte", "ID_Alumno", "Alumno", "Año", "División", 
+            "Fecha", "Tipo_Evento", "Motivo_Detalle", "Registrado_Por"
+        ])
+        
+    return alumnos, profesores, plan, notas, asistencia, conducta
 
-alumnos_init, profesores_df, plan_df, notas_init, asistencia_init = cargar_datos_iniciales()
+alumnos_init, profesores_df, plan_df, notas_init, asistencia_init, conducta_init = cargar_datos_iniciales()
 
 if "alumnos_df" not in st.session_state:
     st.session_state["alumnos_df"] = alumnos_init.copy()
@@ -154,6 +163,8 @@ if "notas_df" not in st.session_state:
     st.session_state["notas_df"] = notas_init.copy()
 if "asistencia_df" not in st.session_state:
     st.session_state["asistencia_df"] = asistencia_init.copy()
+if "conducta_df" not in st.session_state:
+    st.session_state["conducta_df"] = conducta_init.copy()
 
 cols_eval = [
     '1T_Prueba1', '1T_Oral1', '1T_Prueba2', '1T_Oral2', '1T_Participacion', '1T_Carpeta',
@@ -221,7 +232,7 @@ else:
     # --- VISTA DIRECTIVO ---
     if user_info['rol'] == 'Directivo':
         st.title("🏛️ Panel de Control e Indicadores Institucionales")
-        st.write("Visión general del rendimiento escolar, padrón de alumnos y asistencia del establecimiento.")
+        st.write("Visión general del rendimiento escolar, padrón de alumnos, asistencia y partes disciplinarios.")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -231,15 +242,16 @@ else:
         with col3:
             st.markdown('<div class="metric-card"><h4>Promedio General</h4><h2>7.07</h2></div>', unsafe_allow_html=True)
         with col4:
-            st.markdown('<div class="metric-card"><h4>Asistencia General</h4><h2>56%</h2></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><h4>Partes Conducta</h4><h2>{len(st.session_state["conducta_df"])}</h2></div>', unsafe_allow_html=True)
 
         st.markdown("---")
 
-        tab_alumnos, tab_notas, tab_profesores, tab_boletin = st.tabs([
+        tab_alumnos, tab_notas, tab_profesores, tab_boletin, tab_conducta_dir = st.tabs([
             "👨‍🎓 Padrón de Alumnos y Nuevo Ingreso", 
             "📊 Calificaciones Consolidadas", 
             "👩‍🏫 Planta Docente",
-            "📄 Boletín Oficial (PDF / Impresión)"
+            "📄 Boletín Oficial (PDF / Impresión)",
+            "📋 Registro de Conducta y Disciplina"
         ])
 
         with tab_alumnos:
@@ -349,6 +361,7 @@ else:
                             st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
                             st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
                             st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
+                            st.session_state["conducta_df"].to_excel(writer, sheet_name='Conducta', index=False)
                             profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
                             plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
 
@@ -394,6 +407,7 @@ else:
                 st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
                 st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
                 st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
+                st.session_state["conducta_df"].to_excel(writer, sheet_name='Conducta', index=False)
             
             st.download_button(
                 label="📥 Descargar Planilla Excel Actualizada (.xlsx)",
@@ -439,6 +453,10 @@ else:
                 if id_alumno_sel:
                     boletin_html = generar_html_boletin(id_alumno_sel)
                     st.components.v1.html(boletin_html, height=450, scrolling=True)
+
+        with tab_conducta_dir:
+            st.subheader("📋 Consolidado de Partes Disciplinarios e Infracciones")
+            st.dataframe(st.session_state["conducta_df"], use_container_width=True)
 
     # --- VISTA DOCENTE ---
     elif user_info['rol'] == 'Docente':
@@ -528,6 +546,7 @@ else:
                     st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
                     st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
                     st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
+                    st.session_state["conducta_df"].to_excel(writer, sheet_name='Conducta', index=False)
                     profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
                     plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
 
@@ -575,80 +594,202 @@ else:
 
     # --- VISTA PRECEPTORÍA ---
     elif user_info['rol'] == 'Preceptor':
-        st.title("📋 Control Diario de Asistencia y Avisos a Tutores")
+        st.title("📋 Control Diario, Asistencia y Conducta Escolar")
         
-        col_c1, col_c2 = st.columns(2)
-        with col_c1:
-            curso_p = st.selectbox("Seleccionar Curso:", ["1°A", "2°A", "3°A"])
-        with col_c2:
-            fecha_asistencia = st.date_input("Fecha de Asistencia:", datetime.now())
+        tab_asistencia, tab_conducta = st.tabs(["📋 Tomar Asistencia", "📝 Partes Disciplinarios y Conducta"])
 
-        anio_p = int(curso_p[0])
-        div_p = curso_p[2]
-        
-        asistencia_filtrada = st.session_state["asistencia_df"][
-            (st.session_state["asistencia_df"]['Año'] == anio_p) & 
-            (st.session_state["asistencia_df"]['División'] == div_p)
-        ].copy()
+        with tab_asistencia:
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                curso_p = st.selectbox("Seleccionar Curso:", ["1°A", "2°A", "3°A"])
+            with col_c2:
+                fecha_asistencia = st.date_input("Fecha de Asistencia:", datetime.now())
 
-        st.subheader(f"Registro de Asistencia - Curso {curso_p} ({fecha_asistencia.strftime('%d/%m/%Y')})")
-        
-        edited_asistencia = st.data_editor(
-            asistencia_filtrada[['ID_Alumno', 'Alumno', 'Estado', 'Observación_Preceptor']],
-            column_config={
-                "Estado": st.column_config.SelectboxColumn(
-                    "Estado de Asistencia",
-                    options=["Presente", "Ausente", "Tarde", "Justificada"],
-                    required=True
-                ),
-                "Observación_Preceptor": st.column_config.TextColumn("Observación Preceptor")
-            },
-            disabled=['ID_Alumno', 'Alumno'],
-            use_container_width=True
-        )
-
-        if st.button("💾 Guardar Asistencia en Excel"):
-            st.session_state["asistencia_df"].update(edited_asistencia)
-            with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
-                st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
-                st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
-                st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
-                profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
-                plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
-
-            st.success("✅ Asistencia guardada en el Excel.")
-
-        st.markdown("---")
-        st.subheader("📲 Envío de Notificaciones de Ausencia por WhatsApp")
-        
-        ausentes = edited_asistencia[edited_asistencia['Estado'] == 'Ausente']
-
-        if not ausentes.empty:
-            st.warning(f"Se registraron **{len(ausentes)}** alumno(s) ausente(s) el día {fecha_asistencia.strftime('%d/%m/%Y')}:")
+            anio_p = int(curso_p[0])
+            div_p = curso_p[2]
             
-            for _, row_ausente in ausentes.iterrows():
-                info_alumno = st.session_state["alumnos_df"][st.session_state["alumnos_df"]['ID_Alumno'] == row_ausente['ID_Alumno']]
+            asistencia_filtrada = st.session_state["asistencia_df"][
+                (st.session_state["asistencia_df"]['Año'] == anio_p) & 
+                (st.session_state["asistencia_df"]['División'] == div_p)
+            ].copy()
+
+            st.subheader(f"Registro de Asistencia - Curso {curso_p} ({fecha_asistencia.strftime('%d/%m/%Y')})")
+            
+            edited_asistencia = st.data_editor(
+                asistencia_filtrada[['ID_Alumno', 'Alumno', 'Estado', 'Observación_Preceptor']],
+                column_config={
+                    "Estado": st.column_config.SelectboxColumn(
+                        "Estado de Asistencia",
+                        options=["Presente", "Ausente", "Tarde", "Justificada"],
+                        required=True
+                    ),
+                    "Observación_Preceptor": st.column_config.TextColumn("Observación Preceptor")
+                },
+                disabled=['ID_Alumno', 'Alumno'],
+                use_container_width=True
+            )
+
+            if st.button("💾 Guardar Asistencia en Excel"):
+                st.session_state["asistencia_df"].update(edited_asistencia)
+                with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
+                    st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
+                    st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
+                    st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
+                    st.session_state["conducta_df"].to_excel(writer, sheet_name='Conducta', index=False)
+                    profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
+                    plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
+
+                st.success("✅ Asistencia guardada en el Excel.")
+
+            st.markdown("---")
+            st.subheader("📲 Envío de Notificaciones de Ausencia por WhatsApp")
+            
+            ausentes = edited_asistencia[edited_asistencia['Estado'] == 'Ausente']
+
+            if not ausentes.empty:
+                st.warning(f"Se registraron **{len(ausentes)}** alumno(s) ausente(s) el día {fecha_asistencia.strftime('%d/%m/%Y')}:")
                 
-                if not info_alumno.empty:
-                    info_alumno = info_alumno.iloc[0]
-                    tutor_nom = f"{info_alumno.get('Nombre_Tutor', '')} {info_alumno.get('Apellido_Tutor', '')}".strip() or info_alumno.get('Tutor_Responsab', 'Tutor/a')
-                    tel_contacto = info_alumno.get('Telefono_Contacto', '')
+                for _, row_ausente in ausentes.iterrows():
+                    info_alumno = st.session_state["alumnos_df"][st.session_state["alumnos_df"]['ID_Alumno'] == row_ausente['ID_Alumno']]
                     
-                    msg_ausencia = (
-                        f"Estimado/a {tutor_nom}, le notificamos desde la Preceptoría de la Escuela "
-                        f"que el estudiante *{row_ausente['Alumno']}* registra una inasistencia (AUSENTE) "
-                        f"el día de la fecha ({fecha_asistencia.strftime('%d/%m/%Y')}). "
-                        f"Por favor, comuníquese con el establecimiento para justificar la falta."
-                    )
-                    
-                    col_a1, col_a2 = st.columns([3, 1])
-                    with col_a1:
-                        st.write(f"👤 **{row_ausente['Alumno']}** — Tutor: *{tutor_nom}* ({tel_contacto})")
-                    with col_a2:
-                        if pd.notna(tel_contacto) and str(tel_contacto) != '':
-                            link_wa = generar_link_whatsapp(tel_contacto, msg_ausencia)
-                            st.markdown(f'<a href="{link_wa}" target="_blank"><button style="background-color:#25D366; color:white; padding:6px 12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">📲 Enviar WhatsApp</button></a>', unsafe_allow_html=True)
+                    if not info_alumno.empty:
+                        info_alumno = info_alumno.iloc[0]
+                        tutor_nom = f"{info_alumno.get('Nombre_Tutor', '')} {info_alumno.get('Apellido_Tutor', '')}".strip() or info_alumno.get('Tutor_Responsab', 'Tutor/a')
+                        tel_contacto = info_alumno.get('Telefono_Contacto', '')
+                        
+                        msg_ausencia = (
+                            f"Estimado/a {tutor_nom}, le notificamos desde la Preceptoría de la Escuela "
+                            f"que el estudiante *{row_ausente['Alumno']}* registra una inasistencia (AUSENTE) "
+                            f"el día de la fecha ({fecha_asistencia.strftime('%d/%m/%Y')}). "
+                            f"Por favor, comuníquese con el establecimiento para justificar la falta."
+                        )
+                        
+                        col_a1, col_a2 = st.columns([3, 1])
+                        with col_a1:
+                            st.write(f"👤 **{row_ausente['Alumno']}** — Tutor: *{tutor_nom}* ({tel_contacto})")
+                        with col_a2:
+                            if pd.notna(tel_contacto) and str(tel_contacto) != '':
+                                link_wa = generar_link_whatsapp(tel_contacto, msg_ausencia)
+                                st.markdown(f'<a href="{link_wa}" target="_blank"><button style="background-color:#25D366; color:white; padding:6px 12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">📲 Enviar WhatsApp</button></a>', unsafe_allow_html=True)
+                            else:
+                                st.caption("⚠️ Sin teléfono")
+            else:
+                st.success("🎉 No hay alumnos ausentes registrados en este curso.")
+
+        with tab_conducta:
+            st.subheader("📝 Registrar Nuevo Parte Disciplinario / Felicitación")
+
+            cursos_unicos_p = (
+                st.session_state["alumnos_df"]['Año'].astype(str).str.strip() + "°" + 
+                st.session_state["alumnos_df"]['División'].astype(str).str.strip()
+            ).unique()
+
+            col_p1, col_p2 = st.columns([1, 2])
+            with col_p1:
+                curso_cond_sel = st.selectbox("Seleccionar Curso:", sorted(list(cursos_unicos_p)), key="cond_curso")
+                partes_c = curso_cond_sel.split("°")
+                anio_c, div_c = int(partes_c[0]), partes_c[1]
+
+                alumnos_curso_c = st.session_state["alumnos_df"][
+                    (st.session_state["alumnos_df"]['Año'] == anio_c) & 
+                    (st.session_state["alumnos_df"]['División'] == div_c)
+                ]
+
+                if not alumnos_curso_c.empty:
+                    mapa_alumnos_c = {
+                        f"{r['Apellido']}, {r['Nombre']}": r['ID_Alumno'] 
+                        for _, r in alumnos_curso_c.iterrows()
+                    }
+                    alumno_cond_nom = st.selectbox("Seleccionar Alumno:", list(mapa_alumnos_c.keys()))
+                    id_alumno_cond = mapa_alumnos_c[alumno_cond_nom]
+                else:
+                    id_alumno_cond = None
+                    st.warning("Sin alumnos registrados en este curso.")
+
+            with col_p2:
+                if id_alumno_cond:
+                    with st.form("form_nuevo_parte_conducta"):
+                        st.markdown(f"##### Parte de Conducta para: **{alumno_cond_nom}**")
+                        
+                        f_col1, f_col2 = st.columns(2)
+                        with f_col1:
+                            tipo_evento = st.selectbox("Tipo de Evento:", [
+                                "Llamado de Atención Verbal",
+                                "Amonestación",
+                                "Sanción / Suspensión",
+                                "Felicitación / Reconocimiento"
+                            ])
+                        with f_col2:
+                            fecha_evento = st.date_input("Fecha del Suceso:", datetime.now())
+
+                        motivo_detalle = st.text_area("Descripción Detallada del Motivo / Incidente:", placeholder="Escriba aquí lo sucedido...")
+
+                        btn_registrar_parte = st.form_submit_button("💾 Guardar Parte de Conducta")
+
+                    if btn_registrar_parte:
+                        if motivo_detalle.strip():
+                            id_parte = f"PAR-{len(st.session_state['conducta_df']) + 1:03d}"
+                            nuevo_parte = {
+                                "ID_Parte": id_parte,
+                                "ID_Alumno": id_alumno_cond,
+                                "Alumno": alumno_cond_nom,
+                                "Año": anio_c,
+                                "División": div_c,
+                                "Fecha": fecha_evento.strftime('%d/%m/%Y'),
+                                "Tipo_Evento": tipo_evento,
+                                "Motivo_Detalle": motivo_detalle.strip(),
+                                "Registrado_Por": user_info['nombre']
+                            }
+
+                            st.session_state["conducta_df"] = pd.concat([
+                                st.session_state["conducta_df"], 
+                                pd.DataFrame([nuevo_parte])
+                            ], ignore_index=True)
+
+                            # Guardar físicamente en Excel
+                            with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
+                                st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
+                                st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
+                                st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
+                                st.session_state["conducta_df"].to_excel(writer, sheet_name='Conducta', index=False)
+                                profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
+                                plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
+
+                            st.success(f"✅ ¡Parte registrado exitosamente bajo el ID `{id_parte}`!")
+                            st.rerun()
                         else:
-                            st.caption("⚠️ Sin teléfono")
-        else:
-            st.success("🎉 No hay alumnos ausentes registrados en este curso.")
+                            st.error("⚠️ Complete la descripción del motivo antes de guardar.")
+
+            st.markdown("---")
+            st.subheader("📲 Notificar Parte Disciplinario por WhatsApp al Tutor")
+
+            if not st.session_state["conducta_df"].empty:
+                partes_recientes = st.session_state["conducta_df"].tail(10)
+                st.dataframe(partes_recientes[['ID_Parte', 'Alumno', 'Fecha', 'Tipo_Evento', 'Motivo_Detalle', 'Registrado_Por']], use_container_width=True)
+
+                parte_sel_id = st.selectbox("Seleccionar ID de Parte para notificar al Tutor:", partes_recientes['ID_Parte'].tolist())
+                row_parte = partes_recientes[partes_recientes['ID_Parte'] == parte_sel_id].iloc[0]
+
+                info_al = st.session_state["alumnos_df"][st.session_state["alumnos_df"]['ID_Alumno'] == row_parte['ID_Alumno']]
+                if not info_al.empty:
+                    info_al = info_al.iloc[0]
+                    tutor_nom = f"{info_al.get('Nombre_Tutor', '')} {info_al.get('Apellido_Tutor', '')}".strip() or info_al.get('Tutor_Responsab', 'Tutor/a')
+                    tel_contacto = info_al.get('Telefono_Contacto', '')
+
+                    msg_conducta = (
+                        f"Estimado/a {tutor_nom}, le notificamos desde la Preceptoría que se ha registrado "
+                        f"un evento de conducta (*{row_parte['Tipo_Evento']}*) para el estudiante *{row_parte['Alumno']}* "
+                        f"con fecha {row_parte['Fecha']}.\n\n"
+                        f"Detalle: {row_parte['Motivo_Detalle']}.\n\n"
+                        f"Por favor, póngase en contacto con el establecimiento."
+                    )
+
+                    st.text_area("Mensaje de Notificación:", value=msg_conducta, height=120)
+
+                    if pd.notna(tel_contacto) and str(tel_contacto) != '':
+                        link_wa_c = generar_link_whatsapp(tel_contacto, msg_conducta)
+                        st.markdown(f'<a href="{link_wa_c}" target="_blank"><button style="background-color:#25D366; color:white; padding:8px 16px; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">📲 Notificar por WhatsApp</button></a>', unsafe_allow_html=True)
+                    else:
+                        st.warning("⚠️ Sin teléfono de contacto registrado para el tutor.")
+            else:
+                st.info("Aún no hay partes disciplinarios registrados en el sistema.")
