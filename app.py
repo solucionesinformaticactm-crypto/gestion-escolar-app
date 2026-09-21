@@ -72,7 +72,7 @@ def cargar_datos():
 
 datos = cargar_datos()
 
-# 3. Control de Sesión (Login)
+# 2. Control de Sesión (Login)
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
     st.session_state.usuario = ""
@@ -94,24 +94,23 @@ if not st.session_state.autenticado:
         submit = st.form_submit_button("Ingresar al Sistema")
 
         if submit:
-            # Acceso maestro directo y seguro
+            # Acceso maestro de dirección
             if user_input.strip() == "admin" and pass_input == "admin":
                 st.session_state.autenticado = True
                 st.session_state.usuario = "Administrador"
                 st.session_state.rol = "Direccion"
                 st.rerun()
 
-            # Validación flexible de profesores
+            # Validación de profesores desde la base de datos
             acceso_concedido = False
             if datos and "profesores" in datos and not datos["profesores"].empty:
                 df_prof = datos["profesores"]
-                # Buscar columnas posibles para usuario
+                # Buscar columna de usuario
                 col_usuario = None
                 for col in df_prof.columns:
                     if (
                         "usuario" in str(col).lower()
                         or "email" in str(col).lower()
-                        or "mail" in str(col).lower()
                     ):
                         col_usuario = col
                         break
@@ -135,7 +134,7 @@ if not st.session_state.autenticado:
                 st.rerun()
             else:
                 st.error(
-                    "Usuario o contraseña incorrectos. (Prueba con usuario: **admin** / contraseña: **admin**)"
+                    "Usuario o contraseña incorrectos. (Usa usuario: **admin** / contraseña: **admin**)"
                 )
 else:
     # --- MENÚ MÓVIL ---
@@ -143,22 +142,27 @@ else:
     st.sidebar.markdown(f"**Rol:** `{st.session_state.rol}`")
     st.sidebar.markdown("---")
 
-    menu_opcion = st.sidebar.radio(
-        "Menú de Navegación",
-        [
-            "📱 Panel Principal",
-            "📋 Tomar Asistencia",
-            "📝 Cargar Notas",
-            "⚠️ Partes de Conducta",
-            "👥 Padrón de Alumnos",
-            "📅 Agenda Escolar",
-        ],
-    )
+    # Definir opciones de menú según el rol
+    opciones_menu = [
+        "📱 Panel Principal",
+        "📋 Tomar Asistencia",
+        "📝 Cargar Notas",
+        "⚠️ Partes de Conducta",
+        "👥 Padrón de Alumnos",
+        "📅 Agenda Escolar",
+    ]
+
+    # Si es Dirección, agregamos la opción de gestión de profesores
+    if st.session_state.rol == "Direccion":
+        opciones_menu.append("👨‍🏫 Gestión de Profesores")
+
+    menu_opcion = st.sidebar.radio("Menú de Navegación", opciones_menu)
 
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
         st.rerun()
 
+    # --- SECCIÓN: PANEL PRINCIPAL ---
     if menu_opcion == "📱 Panel Principal":
         st.title("Panel Móvil")
         st.success(
@@ -169,8 +173,19 @@ else:
             if datos and "alumnos" in datos and not datos["alumnos"].empty
             else 0
         )
-        st.metric(label="Alumnos Registrados", value=total_alumnos)
+        total_profes = (
+            len(datos["profesores"])
+            if datos and "profesores" in datos and not datos["profesores"].empty
+            else 0
+        )
 
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric(label="Alumnos", value=total_alumnos)
+        with col2:
+            st.metric(label="Profesores", value=total_profes)
+
+    # --- SECCIÓN: TOMAR ASISTENCIA ---
     elif menu_opcion == "📋 Tomar Asistencia":
         st.title("Control de Asistencia")
         if (
@@ -195,6 +210,7 @@ else:
         else:
             st.warning("No hay alumnos cargados.")
 
+    # --- SECCIÓN: CARGAR NOTAS ---
     elif menu_opcion == "📝 Cargar Notas":
         st.title("Cargar Notas")
         st.selectbox(
@@ -204,18 +220,71 @@ else:
         if st.button("Registrar"):
             st.success("Nota registrada con éxito.")
 
+    # --- SECCIÓN: PARTES DE CONDUCTA ---
     elif menu_opcion == "⚠️ Partes de Conducta":
         st.title("Conducta")
         st.text_area("Motivo:")
         if st.button("Emitir Parte"):
             st.success("Parte emitido.")
 
+    # --- SECCIÓN: PADRÓN DE ALUMNOS ---
     elif menu_opcion == "👥 Padrón de Alumnos":
-        st.title("Padrón")
+        st.title("Padrón de Alumnos")
         if datos and "alumnos" in datos:
             st.dataframe(datos["alumnos"], use_container_width=True)
 
+    # --- SECCIÓN: AGENDA ESCOLAR ---
     elif menu_opcion == "📅 Agenda Escolar":
         st.title("Agenda")
         if datos and "agenda" in datos:
             st.dataframe(datos["agenda"], use_container_width=True)
+
+    # --- SECCIÓN EXCLUSIVA: GESTIÓN DE PROFESORES (SOLO DIRECCIÓN) ---
+    elif menu_opcion == "👨‍🏫 Gestión de Profesores":
+        st.title("Alta y Gestión de Docentes")
+        st.markdown(
+            "Complete los datos del profesor para registrarlo en el sistema institucional:"
+        )
+
+        with st.form("form_nuevo_profesor"):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                id_prof = st.text_input("ID_Profesor (Ej. P001):")
+                apellido = st.text_input("Apellido:")
+                dni = st.text_input("DNI:")
+                email = st.text_input("Email:")
+                materias_asig = st.text_input(
+                    "Materia Principal (Ej. Matemática):"
+                )
+            with col_b:
+                nombre = st.text_input("Nombre:")
+                telefono = st.text_input("Teléfono:")
+                cursos_asig = st.text_input(
+                    "Cursos Asignados (Ej. 1°1°, 2°1°):"
+                )
+                nuevo_usuario = st.text_input("Usuario para la App:")
+                nuevo_pass = st.text_input(
+                    "Contraseña para la App:", type="password"
+                )
+
+            submit_prof = st.form_submit_button("Guardar Nuevo Profesor")
+
+            if submit_prof:
+                if id_prof and apellido and nombre and nuevo_usuario:
+                    st.success(
+                        f"¡Profesor/a {apellido}, {nombre} registrado/a correctamente con el usuario `{nuevo_usuario}`!"
+                    )
+                    st.info(
+                        "Nota: Para guardarlo de forma permanente en el Excel institucional, recuerda descargar la actualización o agregarlo en la hoja 'Profesores'."
+                    )
+                else:
+                    st.warning(
+                        "Por favor, complete al menos ID, Apellido, Nombre y Usuario."
+                    )
+
+        st.markdown("---")
+        st.subheader("Listado Actual de Profesores")
+        if datos and "profesores" in datos and not datos["profesores"].empty:
+            st.dataframe(datos["profesores"], use_container_width=True)
+        else:
+            st.info("No hay registros de profesores en la hoja actual.")
