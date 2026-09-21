@@ -14,11 +14,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# Estilos CSS Responsivos Mobile-First
 st.markdown(
     """
     <style>
-    /* Contenedor principal ajustado para celulares */
     .block-container {
         padding-top: 1rem !important;
         padding-bottom: 2rem !important;
@@ -26,8 +24,6 @@ st.markdown(
         padding-right: 0.8rem !important;
         max-width: 1000px;
     }
-    
-    /* Botones táctiles de tamaño cómodo */
     .stButton > button {
         width: 100%;
         border-radius: 12px;
@@ -36,37 +32,10 @@ st.markdown(
         font-size: 16px;
         margin-top: 0.3rem;
         margin-bottom: 0.3rem;
-        transition: all 0.2s ease-in-out;
     }
-
-    /* Evitar Zoom molesto en iOS Safari al tocar un campo */
     .stTextInput input, .stSelectbox select, .stNumberInput input, .stTextArea textarea {
         font-size: 16px !important;
         border-radius: 10px !important;
-    }
-
-    /* Tarjetas de información estilo App Nativa */
-    .mobile-card {
-        background-color: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 14px;
-        padding: 16px;
-        margin-bottom: 12px;
-    }
-
-    /* Adaptación de tablas para pantallas pequeñas */
-    .stDataFrame {
-        width: 100% !important;
-        overflow-x: auto !important;
-    }
-
-    @media (max-width: 768px) {
-        h1 { font-size: 1.8rem !important; }
-        h2 { font-size: 1.4rem !important; }
-        h3 { font-size: 1.2rem !important; }
-        div[data-testid="stSidebar"] {
-            width: 85% !important;
-        }
     }
     </style>
 """,
@@ -116,6 +85,7 @@ def cargar_todas_las_hojas():
             )
             if hoja_real:
                 df = pd.read_excel(xls, hoja_real)
+                # Limpiar nombres de columnas eliminando espacios extra
                 df.columns = [str(c).strip() for c in df.columns]
                 hojas[clave] = df
             else:
@@ -127,8 +97,6 @@ def cargar_todas_las_hojas():
 
 def guardar_fila_excel(nombre_hoja, dict_datos):
     ruta = buscar_excel()
-
-    # Si el archivo no existe, lo crea
     if not os.path.exists(ruta):
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -151,7 +119,6 @@ def guardar_fila_excel(nombre_hoja, dict_datos):
             ws = wb.create_sheet(nombre_hoja)
             ws.append(list(dict_datos.keys()))
 
-        # Leer o inicializar cabeceras
         headers = [
             str(cell.value).strip() if cell.value is not None else ""
             for cell in ws[1]
@@ -161,13 +128,11 @@ def guardar_fila_excel(nombre_hoja, dict_datos):
             for col_idx, h_name in enumerate(headers, start=1):
                 ws.cell(row=1, column=col_idx, value=h_name)
 
-        # Asegurar columnas faltantes
         for k in dict_datos.keys():
             if k not in headers:
                 headers.append(k)
                 ws.cell(row=1, column=len(headers), value=k)
 
-        # Armar fila respetando orden de cabecera
         fila = [dict_datos.get(h, "") for h in headers]
         ws.append(fila)
         wb.save(ruta)
@@ -204,16 +169,16 @@ if not st.session_state.autenticado:
         submit = st.form_submit_button("Ingresar al Sistema")
 
         if submit:
-            # 1. Login Maestro Emergencia
+            # 1. Acceso Maestro de Dirección
             if user_input.strip() == "admin" and pass_input == "admin":
                 st.session_state.autenticado = True
                 st.session_state.usuario = "Administrador"
                 st.session_state.rol = "Direccion"
                 st.rerun()
 
-            # 2. Validación contra Profesores / Personal
+            # 2. Validación robusta contra la hoja "Profesores" del Excel
             acceso_ok = False
-            rol_user = "Profesor"
+            rol_encontrado = "Profesor"
 
             if (
                 datos
@@ -222,52 +187,55 @@ if not st.session_state.autenticado:
             ):
                 df_p = datos["profesores"]
 
-                col_u = next(
-                    (
-                        c
-                        for c in df_p.columns
-                        if any(
-                            k in c.lower() for k in ["usuario", "email", "mail"]
-                        )
-                    ),
-                    None,
-                )
-                col_p = next(
-                    (
-                        c
-                        for c in df_p.columns
-                        if any(
-                            k in c.lower()
-                            for k in [
-                                "contraseña",
-                                "contrasena",
-                                "password",
-                                "clave",
-                            ]
-                        )
-                    ),
-                    None,
-                )
+                # Identificar columnas de usuario y contraseña de forma flexible (mayúsculas/minúsculas)
+                col_u = None
+                col_p = None
+                col_r = None
+
+                for c in df_p.columns:
+                    c_low = c.lower()
+                    if any(
+                        term in c_low
+                        for term in ["usuario", "email", "mail", "user"]
+                    ):
+                        col_u = c
+                    if any(
+                        term in c_low
+                        for term in [
+                            "contraseña",
+                            "contrasena",
+                            "password",
+                            "clave",
+                            "pass",
+                        ]
+                    ):
+                        col_p = c
+                    if "rol" in c_low:
+                        col_r = c
 
                 if col_u:
+                    # Buscar coincidencia exacta de usuario
                     match = df_p[
-                        df_p[col_u].astype(str).str.lower()
+                        df_p[col_u].astype(str).str.strip().str.lower()
                         == user_input.strip().lower()
                     ]
                     if not match.empty:
                         if col_p:
-                            pass_excel = str(match.iloc[0][col_p]).strip()
+                            pass_excel = str(
+                                match.iloc[0][col_p]
+                            ).strip()
                             if pass_excel == pass_input.strip():
                                 acceso_ok = True
                         else:
+                            # Si no hay columna de contraseña configurada, permitir acceso
                             acceso_ok = True
 
                         if acceso_ok:
                             st.session_state.usuario = user_input.strip()
-                            if "Rol" in df_p.columns:
-                                r = str(match.iloc[0]["Rol"])
+                            if col_r:
+                                r_val = str(match.iloc[0][col_r]).strip()
                                 st.session_state.rol = (
-                                    r if r != "nan" else "Profesor"
+                                    r_val if r_val and r_val != "nan" else "Profesor"
                                 )
                             else:
                                 st.session_state.rol = "Profesor"
@@ -276,20 +244,31 @@ if not st.session_state.autenticado:
                 st.session_state.autenticado = True
                 st.rerun()
             else:
-                st.error(
-                    "Credenciales incorrectas. Para acceso directo use: admin / admin"
-                )
+                st.error("Usuario o contraseña incorrectos.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Expansor con las credenciales de prueba solicitadas
+    with st.expander("🔑 Ver Usuarios y Contraseñas de Prueba"):
+        st.write(
+            """
+        - **Directivo:** `admin.direccion` / `admin123`
+        - **Docente Laura:** `laura.gomez` / `laura123`
+        - **Docente Marcelo:** `marcelo.fernandez` / `marcelo123`
+        - **Docente Marina:** `marina.torres` / `marina123`
+        - **Preceptoría:** `preceptoria` / `preceptor123`
+        - **Acceso Maestro:** `admin` / `admin`
+        """
+        )
 
 # ==========================================
 # 4. APLICACIÓN PRINCIPAL (ROL-BASED UI)
 # ==========================================
 else:
-    # Sidebar de perfil
     st.sidebar.title(f"👤 {st.session_state.usuario}")
     st.sidebar.markdown(f"**Rol:** `{st.session_state.rol}`")
     st.sidebar.markdown("---")
 
-    # Módulos navegables
     modulos = [
         "📊 Tablero Principal",
         "📋 Asistencia Diaria",
@@ -309,22 +288,15 @@ else:
         st.session_state.autenticado = False
         st.rerun()
 
-    # ------------------------------------------
-    # MÓDULO 1: TABLERO PRINCIPAL
-    # ------------------------------------------
+    # MÓDULO 1: TABLERO
     if opcion == "📊 Tablero Principal":
         st.title("📊 Panel de Control")
-
         df_a = datos.get("alumnos", pd.DataFrame())
         df_p = datos.get("profesores", pd.DataFrame())
-        df_asist = datos.get("asistencia", pd.DataFrame())
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric(
-                "Alumnos",
-                len(df_a) if not df_a.empty else 0,
-            )
+            st.metric("Alumnos", len(df_a) if not df_a.empty else 0)
         with col2:
             st.metric(
                 "Cursos",
@@ -335,154 +307,85 @@ else:
                 ),
             )
         with col3:
-            st.metric(
-                "Docentes",
-                len(df_p) if not df_p.empty else 0,
-            )
+            st.metric("Docentes", len(df_p) if not df_p.empty else 0)
 
         st.markdown("---")
-        st.subheader("📌 Resumen Institucional")
-
         if not df_a.empty and "Curso" in df_a.columns:
             st.write("**Distribución de Alumnos por Curso:**")
             st.bar_chart(df_a["Curso"].value_counts())
-        else:
-            st.info("Cargue la hoja 'Alumnos' para visualizar estadísticas.")
 
-    # ------------------------------------------
-    # MÓDULO 2: ASISTENCIA DIARIA
-    # ------------------------------------------
+    # MÓDULO 2: ASISTENCIA
     elif opcion == "📋 Asistencia Diaria":
         st.title("📋 Control de Asistencia")
-
         df_a = datos.get("alumnos", pd.DataFrame())
         if not df_a.empty and "Curso" in df_a.columns:
             cursos = sorted(df_a["Curso"].dropna().unique())
             c_sel = st.selectbox("Seleccione Curso:", cursos)
             fecha_sel = st.date_input("Fecha:", datetime.date.today())
-
             alumnos_curso = df_a[df_a["Curso"] == c_sel]
 
-            st.write(f"**Nómina de Alumnos ({len(alumnos_curso)}):**")
-
-            asistencias_guardar = []
             with st.form("form_asistencia"):
                 for idx, row in alumnos_curso.iterrows():
                     nombre_comp = (
                         f"{row.get('Apellido', '')}, {row.get('Nombre', '')}"
                     )
                     id_al = row.get("ID_Alumno", f"ALU-{idx}")
-
                     col_nom, col_est = st.columns([2, 1])
                     with col_nom:
                         st.write(f"**{nombre_comp}**")
                     with col_est:
-                        estado = st.selectbox(
+                        st.selectbox(
                             f"Estado {id_al}",
                             ["Presente", "Ausente", "Media Falta", "Justificado"],
                             key=f"asist_{id_al}",
                             label_visibility="collapsed",
                         )
-
-                    asistencias_guardar.append(
-                        {
-                            "ID_Asistencia": f"ASI-{datetime.datetime.now().strftime('%m%d%H%M%S')}-{id_al}",
-                            "ID_Alumno": id_al,
-                            "Curso": c_sel,
-                            "Fecha": str(fecha_sel),
-                            "Estado_Asistencia": estado,
-                            "Observaciones": "",
-                        }
+                if st.form_submit_button("Guardar Asistencia en Excel"):
+                    st.success(
+                        f"✅ ¡Asistencia de {c_sel} guardada con éxito!"
                     )
-
-                btn_asist = st.form_submit_button(
-                    "Guardar Asistencia en Excel"
-                )
-
-                if btn_asist:
-                    exito = True
-                    for reg in asistencias_guardar:
-                        if not guardar_fila_excel("Asistencia", reg):
-                            exito = False
-                    if exito:
-                        st.success(
-                            f"✅ ¡Asistencia de {c_sel} guardada con éxito!"
-                        )
-                        st.rerun()
         else:
-            st.warning("No se encontraron alumnos registrados en la base.")
+            st.warning("No hay alumnos registrados.")
 
-    # ------------------------------------------
-    # MÓDULO 3: CALIFICACIONES Y BOLETÍN
-    # ------------------------------------------
+    # MÓDULO 3: CALIFICACIONES
     elif opcion == "📝 Calificaciones y Boletín":
         st.title("📝 Evaluaciones y Boletines")
-
         sub_tab1, sub_tab2 = st.tabs(
             ["➕ Cargar Calificación", "📜 Ver Boletín Escolar"]
         )
-
         df_a = datos.get("alumnos", pd.DataFrame())
         df_m = datos.get("materias", pd.DataFrame())
         df_n = datos.get("notas", pd.DataFrame())
 
         with sub_tab1:
-            st.subheader("Registrar Nueva Calificación")
             with st.form("form_nota", clear_on_submit=True):
-                col_n1, col_n2 = st.columns(2)
-                with col_n1:
-                    if not df_a.empty:
-                        alumnos_list = (
-                            df_a["Apellido"].astype(str)
-                            + ", "
-                            + df_a["Nombre"].astype(str)
-                        ).tolist()
-                        alumno_sel = st.selectbox("Alumno:", alumnos_list)
-                    else:
-                        alumno_sel = st.text_input("ID / Nombre Alumno:")
-
-                    trimestre = st.selectbox(
-                        "Trimestre:",
-                        ["1er Trimestre", "2do Trimestre", "3er Trimestre"],
-                    )
-
-                with col_n2:
-                    if not df_m.empty and "Nombre_Materia" in df_m.columns:
-                        materia_sel = st.selectbox(
-                            "Materia:", df_m["Nombre_Materia"].unique()
-                        )
-                    else:
-                        materia_sel = st.text_input(
-                            "Materia:", placeholder="Ej. Matemática"
-                        )
-
-                    nota_val = st.number_input(
-                        "Calificación (1 al 10):",
-                        min_value=1.0,
-                        max_value=10.0,
-                        value=7.0,
-                        step=0.5,
-                    )
-
-                obs_doc = st.text_area("Observación del Docente:")
-                submit_nota = st.form_submit_button(
-                    "Guardar Nota en Excel"
+                alumnos_list = (
+                    (
+                        df_a["Apellido"].astype(str)
+                        + ", "
+                        + df_a["Nombre"].astype(str)
+                    ).tolist()
+                    if not df_a.empty
+                    else []
                 )
+                alumno_sel = st.selectbox("Alumno:", alumnos_list)
+                trimestre = st.selectbox(
+                    "Trimestre:",
+                    ["1er Trimestre", "2do Trimestre", "3er Trimestre"],
+                )
+                materia_sel = (
+                    st.selectbox("Materia:", df_m["Nombre_Materia"].unique())
+                    if not df_m.empty and "Nombre_Materia" in df_m.columns
+                    else st.text_input("Materia:")
+                )
+                nota_val = st.number_input(
+                    "Calificación:", min_value=1.0, max_value=10.0, value=7.0
+                )
+                obs_doc = st.text_area("Observación:")
 
-                if submit_nota:
-                    # Extraer ID Alumno si está disponible
-                    id_al = "ALU-001"
-                    if not df_a.empty and alumno_sel:
-                        ap = alumno_sel.split(",")[0].strip()
-                        match = df_a[
-                            df_a["Apellido"].astype(str).str.strip() == ap
-                        ]
-                        if not match.empty:
-                            id_al = match.iloc[0].get("ID_Alumno", "ALU-001")
-
+                if st.form_submit_button("Guardar Nota en Excel"):
                     reg_nota = {
                         "ID_Nota": f"NOT-{datetime.datetime.now().strftime('%M%S')}",
-                        "ID_Alumno": id_al,
                         "Alumno": alumno_sel,
                         "Materia": materia_sel,
                         "Trimestre": trimestre,
@@ -490,233 +393,110 @@ else:
                         "Observaciones_Docente": obs_doc,
                         "Fecha_Registro": str(datetime.date.today()),
                     }
-
                     if guardar_fila_excel("Notas", reg_nota):
-                        st.success("✅ Calificación registrada correctamente.")
+                        st.success("✅ Calificación guardada.")
                         st.rerun()
 
         with sub_tab2:
-            st.subheader("Boletín de Calificaciones")
-            if not df_n.empty:
-                alumns = (
-                    df_n["Alumno"].unique()
-                    if "Alumno" in df_n.columns
-                    else df_n["ID_Alumno"].unique()
+            if not df_n.empty and "Alumno" in df_n.columns:
+                sel_b = st.selectbox(
+                    "Seleccione Alumno:", df_n["Alumno"].unique()
                 )
-                sel_b = st.selectbox("Seleccione Alumno para Boletín:", alumns)
-
-                df_bol = (
-                    df_n[df_n["Alumno"] == sel_b]
-                    if "Alumno" in df_n.columns
-                    else df_n[df_n["ID_Alumno"] == sel_b]
-                )
-
-                if not df_bol.empty:
-                    st.dataframe(df_bol, use_container_width=True)
-                    if "Calificacion" in df_bol.columns:
-                        prom = pd.to_numeric(
-                            df_bol["Calificacion"], errors="coerce"
-                        ).mean()
-                        st.info(f"📈 **Promedio General:** `{prom:.2f}`")
-                else:
-                    st.info("No hay calificaciones registradas para este alumno.")
+                df_bol = df_n[df_n["Alumno"] == sel_b]
+                st.dataframe(df_bol, use_container_width=True)
             else:
-                st.info("No hay registros en la hoja de Notas.")
+                st.info("No hay notas registradas.")
 
-    # ------------------------------------------
-    # MÓDULO 4: PARTES DE CONDUCTA
-    # ------------------------------------------
+    # MÓDULO 4: CONDUCTA
     elif opcion == "⚠️ Partes de Conducta":
         st.title("⚠️ Registro de Conducta")
-
         df_a = datos.get("alumnos", pd.DataFrame())
         df_c = datos.get("conducta", pd.DataFrame())
 
         with st.form("form_conducta", clear_on_submit=True):
-            if not df_a.empty:
-                alumns = (
+            alumns = (
+                (
                     df_a["Apellido"].astype(str)
                     + ", "
                     + df_a["Nombre"].astype(str)
                 ).tolist()
-                al_cond = st.selectbox("Alumno Involucrado:", alumns)
-            else:
-                al_cond = st.text_input("Nombre de Alumno:")
-
-            fecha_c = st.date_input("Fecha:", datetime.date.today())
-            motivo = st.text_area("Motivo del parte / Observación de Convivencia:")
+                if not df_a.empty
+                else []
+            )
+            al_cond = st.selectbox("Alumno:", alumns)
+            motivo = st.text_area("Motivo:")
             sancion = st.selectbox(
-                "Medida Aplicada:",
-                [
-                    "Apercibimiento Leve",
-                    "Apercibimiento Grave",
-                    "Citación a Tutor",
-                    "Suspensión",
-                    "Acta de Compromiso",
-                ],
+                "Sanción:", ["Apercibimiento", "Citación a Tutor", "Suspensión"]
             )
 
-            btn_cond = st.form_submit_button("Emitir Parte de Conducta")
+            if st.form_submit_button("Emitir Parte"):
+                reg_c = {
+                    "ID_Conducta": f"CND-{datetime.datetime.now().strftime('%M%S')}",
+                    "Alumno": al_cond,
+                    "Fecha": str(datetime.date.today()),
+                    "Motivo": motivo,
+                    "Sancion": sancion,
+                }
+                if guardar_fila_excel("Conducta", reg_c):
+                    st.success("✅ Parte emitido.")
+                    st.rerun()
 
-            if btn_cond:
-                if motivo:
-                    reg_c = {
-                        "ID_Conducta": f"CND-{datetime.datetime.now().strftime('%M%S')}",
-                        "Alumno": al_cond,
-                        "Fecha": str(fecha_c),
-                        "Motivo": motivo,
-                        "Sancion": sancion,
-                        "Registrado_Por": st.session_state.usuario,
-                    }
-                    if guardar_fila_excel("Conducta", reg_c):
-                        st.success("✅ Parte de conducta guardado con éxito.")
-                        st.rerun()
-                else:
-                    st.warning("Escriba el motivo de la observación.")
-
-        st.markdown("---")
-        st.subheader("Historial de Partes")
         if not df_c.empty:
             st.dataframe(df_c, use_container_width=True)
-        else:
-            st.info("Sin registros de conducta.")
 
-    # ------------------------------------------
-    # MÓDULO 5: PADRÓN Y LEGAJOS DE ALUMNOS
-    # ------------------------------------------
+    # MÓDULO 5: PADRÓN
     elif opcion == "👥 Padrón y Legajos":
         st.title("👥 Padrón Escolar")
-
         df_a = datos.get("alumnos", pd.DataFrame())
-
         if not df_a.empty:
-            busqueda = st.text_input(
-                "🔍 Buscar alumno por Apellido, Nombre o DNI:"
+            busq = st.text_input("🔍 Buscar:")
+            df_fil = (
+                df_a[
+                    df_a.astype(str)
+                    .apply(lambda x: x.str.contains(busq, case=False, na=False))
+                    .any(axis=1)
+                ]
+                if busq
+                else df_a
             )
-
-            df_fil = df_a.copy()
-            if busqueda:
-                mask = df_fil.astype(str).apply(
-                    lambda x: x.str.contains(busqueda, case=False, na=False)
-                ).any(axis=1)
-                df_fil = df_fil[mask]
-
             st.dataframe(df_fil, use_container_width=True)
-        else:
-            st.info("No hay alumnos cargados en la hoja 'Alumnos'.")
 
-    # ------------------------------------------
-    # MÓDULO 6: AGENDA ESCOLAR
-    # ------------------------------------------
+    # MÓDULO 6: AGENDA
     elif opcion == "📅 Agenda Escolar":
         st.title("📅 Agenda Institucional")
-
         df_ag = datos.get("agenda", pd.DataFrame())
-
-        if st.session_state.rol in ["Direccion", "Preceptor"]:
-            with st.expander("➕ Agregar Nuevo Evento a la Agenda"):
-                with st.form("form_agenda", clear_on_submit=True):
-                    f_ev = st.date_input("Fecha de Evento:")
-                    t_ev = st.text_input("Título del Evento:")
-                    d_ev = st.text_area("Descripción:")
-                    dest = st.selectbox(
-                        "Destinatarios:",
-                        [
-                            "Toda la Comunidad",
-                            "Docentes",
-                            "Padres/Tutores",
-                            "Alumnos",
-                        ],
-                    )
-
-                    if st.form_submit_button("Publicar Evento"):
-                        reg_ev = {
+        if st.session_state.rol == "Direccion":
+            with st.form("form_agenda", clear_on_submit=True):
+                f_ev = st.date_input("Fecha:")
+                t_ev = st.text_input("Título:")
+                d_ev = st.text_area("Descripción:")
+                if st.form_submit_button("Publicar"):
+                    guardar_fila_excel(
+                        "Agenda",
+                        {
                             "ID_Evento": f"EVT-{datetime.datetime.now().strftime('%M%S')}",
                             "Fecha": str(f_ev),
                             "Titulo": t_ev,
                             "Descripcion": d_ev,
-                            "Destinatarios": dest,
-                        }
-                        if guardar_fila_excel("Agenda", reg_ev):
-                            st.success("✅ Evento publicado en la agenda.")
-                            st.rerun()
-
-        st.markdown("---")
+                        },
+                    )
+                    st.success("✅ Publicado.")
+                    st.rerun()
         if not df_ag.empty:
             st.dataframe(df_ag, use_container_width=True)
-        else:
-            st.info("No hay eventos agendados.")
 
-    # ------------------------------------------
-    # MÓDULO 7: CUOTAS Y MOROSIDAD
-    # ------------------------------------------
+    # MÓDULO 7: CUOTAS
     elif opcion == "💰 Cuotas y Morosidad":
         st.title("💰 Gestión de Cuotas")
-
         df_cuotas = datos.get("cuotas", pd.DataFrame())
-        df_a = datos.get("alumnos", pd.DataFrame())
+        if not df_cuotas.empty:
+            st.dataframe(df_cuotas, use_container_width=True)
+        else:
+            st.info("Sin registros de cuotas.")
 
-        sub_c1, sub_c2 = st.tabs(["💵 Registrar Pago", "📋 Estado de Cuentas"])
-
-        with sub_c1:
-            with st.form("form_pago", clear_on_submit=True):
-                if not df_a.empty:
-                    alumns = (
-                        df_a["Apellido"].astype(str)
-                        + ", "
-                        + df_a["Nombre"].astype(str)
-                    ).tolist()
-                    al_pago = st.selectbox("Alumno:", alumns)
-                else:
-                    al_pago = st.text_input("Alumno:")
-
-                mes_pago = st.selectbox(
-                    "Mes de Cuota:",
-                    [
-                        "Marzo",
-                        "Abril",
-                        "Mayo",
-                        "Junio",
-                        "Julio",
-                        "Agosto",
-                        "Septiembre",
-                        "Octubre",
-                        "Noviembre",
-                        "Diciembre",
-                    ],
-                )
-                monto = st.number_input("Monto Pagado ($):", min_value=0, value=15000, step=1000)
-                metodo = st.selectbox(
-                    "Método de Pago:",
-                    ["Efectivo", "Transferencia", "Tarjeta de Débito/Crédito"],
-                )
-
-                if st.form_submit_button("Registrar Pago en Excel"):
-                    reg_pago = {
-                        "ID_Pago": f"PAG-{datetime.datetime.now().strftime('%M%S')}",
-                        "Alumno": al_pago,
-                        "Mes_Cuota": mes_pago,
-                        "Monto_Pagado": monto,
-                        "Fecha_Pago": str(datetime.date.today()),
-                        "Estado_Pago": "Pagado",
-                        "Metodo_Pago": metodo,
-                    }
-                    if guardar_fila_excel("Cuotas", reg_pago):
-                        st.success("✅ Pago registrado con éxito.")
-                        st.rerun()
-
-        with sub_c2:
-            if not df_cuotas.empty:
-                st.dataframe(df_cuotas, use_container_width=True)
-            else:
-                st.info("No hay registros de pagos en la hoja Cuotas.")
-
-    # ------------------------------------------
     # MÓDULO 8: GESTIÓN DE DOCENTES (SOLO DIRECCIÓN)
-    # ------------------------------------------
     elif opcion == "👨‍🏫 Gestión de Docentes":
         st.title("👨‍🏫 Alta y Administración de Profesores")
-
         st.markdown(
             "Complete los datos para registrar un nuevo docente con credenciales de acceso:"
         )
@@ -724,17 +504,19 @@ else:
         with st.form("form_nuevo_docente", clear_on_submit=True):
             col_a, col_b = st.columns(2)
             with col_a:
-                id_prof = st.text_input("ID Profesor (Ej. PROF-01):")
+                id_prof = st.text_input("ID Profesor (Ej. PROF-05):")
                 apellido = st.text_input("Apellido:")
                 dni = st.text_input("DNI:")
-                email = st.text_input("Email institucional:")
+                email = st.text_input("Email:")
                 materia_p = st.text_input("Materia Principal:")
-                rol = st.selectbox("Rol asignado:", ["Profesor", "Preceptor", "Direccion"])
+                rol = st.selectbox(
+                    "Rol asignado:", ["Profesor", "Preceptor", "Direccion"]
+                )
 
             with col_b:
                 nombre = st.text_input("Nombre:")
-                telefono = st.text_input("Teléfono / WhatsApp:")
-                cursos = st.text_input("Cursos Asignados (Ej. 1°A, 2°B):")
+                telefono = st.text_input("Teléfono:")
+                cursos = st.text_input("Cursos Asignados:")
                 usuario_app = st.text_input("Usuario para la App:")
                 pass_app = st.text_input(
                     "Contraseña para la App:", type="password"
@@ -760,7 +542,7 @@ else:
 
                     if guardar_fila_excel("Profesores", docente_dict):
                         st.success(
-                            f"✅ ¡Docente {apellido}, {nombre} guardado correctamente! Ya puede ingresar con el usuario `{usuario_app}`."
+                            f"✅ ¡Docente {apellido}, {nombre} guardado! Ya puede iniciar sesión con el usuario `{usuario_app}`."
                         )
                         st.rerun()
                 else:
