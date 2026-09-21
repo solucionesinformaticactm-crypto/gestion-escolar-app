@@ -94,7 +94,7 @@ for col in cols_eval:
     if col not in st.session_state["notas_df"].columns:
         st.session_state["notas_df"][col] = 0.0
     else:
-        st.session_state["notas_df"][col] = st.session_state["notas_df"][col].fillna(0.0)
+        st.session_state["notas_df"][col] = pd.to_numeric(st.session_state["notas_df"][col], errors='coerce').fillna(0.0)
 
 # -----------------------------------------------------------------------------
 # 🔐 PANTALLA DE INICIO DE SESIÓN
@@ -334,7 +334,7 @@ else:
             st.subheader("👩‍🏫 Nómina de Profesores y Materias Asignadas")
             st.dataframe(profesores_df, use_container_width=True)
 
-    # --- VISTA DOCENTE (CÁLCULOS CORREGIDOS) ---
+    # --- VISTA DOCENTE ---
     elif user_info['rol'] == 'Docente':
         prof_data = profesores_df[profesores_df['ID_Profesor'] == user_info['id']].iloc[0]
         st.title(f"📚 Gestión Académica — Prof. {prof_data['Nombre']} {prof_data['Apellido']}")
@@ -353,7 +353,6 @@ else:
             anio_sel = int(curso_seleccionado.split("°")[0])
             div_sel = curso_seleccionado.split(" ")[1]
 
-            # Obtener datos e índices originales para garantizar actualización exacta
             notas_curso = st.session_state["notas_df"][
                 (st.session_state["notas_df"]['ID_Profesor'] == user_info['id']) &
                 (st.session_state["notas_df"]['Año'] == anio_sel) &
@@ -380,7 +379,7 @@ else:
                 column_config={
                     cols_sub[0]: st.column_config.NumberColumn("Prueba 1", min_value=0, max_value=10, format="%d"),
                     cols_sub[1]: st.column_config.NumberColumn("L. Oral 1", min_value=0, max_value=10, format="%d"),
-                    cols_sub[2]: st.column_config.NumberColumn("Prueba 2", min_value=0, max_value=0, format="%d"),
+                    cols_sub[2]: st.column_config.NumberColumn("Prueba 2", min_value=0, max_value=10, format="%d"),
                     cols_sub[3]: st.column_config.NumberColumn("L. Oral 2", min_value=0, max_value=10, format="%d"),
                     cols_sub[4]: st.column_config.NumberColumn("Participación", min_value=0, max_value=10, format="%d"),
                     cols_sub[5]: st.column_config.NumberColumn("Carpeta", min_value=0, max_value=10, format="%d"),
@@ -394,28 +393,33 @@ else:
             )
 
             if st.button("💾 Recalcular y Guardar en Excel"):
-                # Convertir celdas vacías en 0.0 para no arruinar cálculos
-                edited_df[cols_sub] = edited_df[cols_sub].fillna(0.0)
+                # 1. Asegurar conversión limpia a tipos numéricos flotantes
+                for col in cols_sub:
+                    edited_df[col] = pd.to_numeric(edited_df[col], errors='coerce').fillna(0.0)
 
-                # 1. Calcular el Promedio del Trimestre Activo sumando solo las notas ingresadas
+                # 2. Calcular el Promedio del Trimestre Activo
                 edited_df[col_trim_res] = edited_df[cols_sub].mean(axis=1).round(2)
 
-                # Mantener los valores de los otros trimestres desde la sesión
+                # 3. Mantener los valores de los otros trimestres desde la sesión
                 for t_col in ['Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.']:
                     if t_col != col_trim_res:
-                        edited_df[t_col] = st.session_state["notas_df"].loc[edited_df.index, t_col].fillna(0.0)
+                        edited_df[t_col] = pd.to_numeric(
+                            st.session_state["notas_df"].loc[edited_df.index, t_col], 
+                            errors='coerce'
+                        ).fillna(0.0)
 
-                # 2. Recalcular el Promedio Final Anual
+                # 4. Recalcular el Promedio Final Anual y Condición
                 edited_df['Promedio'] = (
                     edited_df['Nota_1er_Trim.'] + edited_df['Nota_2do_Trim.'] + edited_df['Nota_3er_Trim.']
                 ) / 3
                 edited_df['Promedio'] = edited_df['Promedio'].round(2)
                 edited_df['Condición'] = edited_df['Promedio'].apply(lambda x: 'Aprobado' if x >= 6 else 'Desaprobado')
 
-                # 3. Guardar cambios en el DataFrame principal respetando los índices
-                st.session_state["notas_df"].loc[edited_df.index, edited_df.columns] = edited_df
+                # 5. Actualización segura columna por columna evitando LossySetitemError
+                for col in edited_df.columns:
+                    st.session_state["notas_df"].loc[edited_df.index, col] = edited_df[col].values
 
-                # 4. Guardar físicamente en la planilla Excel
+                # 6. Guardar físicamente en el archivo Excel
                 with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
                     st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
                     st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
