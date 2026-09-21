@@ -3,7 +3,7 @@ import streamlit as st
 
 # 1. Configuración de la página (Adaptada para dispositivos móviles)
 st.set_page_config(
-    page_title="Gestión Escolar Móvil",
+    page_title="Gestión Escolar Secundario",
     page_icon="🎓",
     layout="centered",  # Centrado para mejor visualización en pantallas de celulares
     initial_sidebar_state="collapsed",  # Menú contraído por defecto para ganar espacio en el móvil
