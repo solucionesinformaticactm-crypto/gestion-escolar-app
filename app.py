@@ -84,17 +84,19 @@ if "notas_df" not in st.session_state:
 if "asistencia_df" not in st.session_state:
     st.session_state["asistencia_df"] = asistencia_init.copy()
 
-# Garantizar que las columnas de evaluación existan y no contengan valores NaN
+# Columnas de evaluaciones continuas por trimestre
 cols_eval = [
     '1T_Prueba1', '1T_Oral1', '1T_Prueba2', '1T_Oral2', '1T_Participacion', '1T_Carpeta',
     '2T_Prueba1', '2T_Oral1', '2T_Prueba2', '2T_Oral2', '2T_Participacion', '2T_Carpeta',
     '3T_Prueba1', '3T_Oral1', '3T_Prueba2', '3T_Oral2', '3T_Participacion', '3T_Carpeta'
 ]
-for col in cols_eval:
+
+# Garantizar que todas las columnas numéricas de notas sean float64 para evitar LossySetitemError
+columnas_numericas_notas = cols_eval + ['Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.', 'Promedio']
+for col in columnas_numericas_notas:
     if col not in st.session_state["notas_df"].columns:
         st.session_state["notas_df"][col] = 0.0
-    else:
-        st.session_state["notas_df"][col] = pd.to_numeric(st.session_state["notas_df"][col], errors='coerce').fillna(0.0)
+    st.session_state["notas_df"][col] = pd.to_numeric(st.session_state["notas_df"][col], errors='coerce').fillna(0.0).astype(float)
 
 # -----------------------------------------------------------------------------
 # 🔐 PANTALLA DE INICIO DE SESIÓN
@@ -334,7 +336,7 @@ else:
             st.subheader("👩‍🏫 Nómina de Profesores y Materias Asignadas")
             st.dataframe(profesores_df, use_container_width=True)
 
-    # --- VISTA DOCENTE (PROMEDIO EXCLUSIVO DE NOTAS CARGADAS) ---
+    # --- VISTA DOCENTE ---
     elif user_info['rol'] == 'Docente':
         prof_data = profesores_df[profesores_df['ID_Profesor'] == user_info['id']].iloc[0]
         st.title(f"📚 Gestión Académica — Prof. {prof_data['Nombre']} {prof_data['Apellido']}")
@@ -393,31 +395,35 @@ else:
             )
 
             if st.button("💾 Recalcular y Guardar en Excel"):
-                # 1. Asegurar tipo numérico
+                # 1. Asegurar tipo numérico float64 en los parciales editados
                 for col in cols_sub:
-                    edited_df[col] = pd.to_numeric(edited_df[col], errors='coerce').fillna(0.0)
+                    edited_df[col] = pd.to_numeric(edited_df[col], errors='coerce').fillna(0.0).astype(float)
 
-                # 2. OPCIÓN A: Reemplazar el 0 por NaN temporalmente para ignorar casilleros no evaluados en el promedio
-                edited_df[col_trim_res] = edited_df[cols_sub].replace(0, pd.NA).mean(axis=1).round(2).fillna(0.0)
+                # 2. Reemplazar 0 por NaN temporalmente para promediar solo casillas evaluadas
+                edited_df[col_trim_res] = edited_df[cols_sub].replace(0, pd.NA).mean(axis=1).round(2).fillna(0.0).astype(float)
 
-                # 3. Recuperar las notas de los demás trimestres
+                # 3. Cargar y asegurar flotantes para los otros trimestres
                 for t_col in ['Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.']:
                     if t_col != col_trim_res:
                         edited_df[t_col] = pd.to_numeric(
                             st.session_state["notas_df"].loc[edited_df.index, t_col], 
                             errors='coerce'
-                        ).fillna(0.0)
+                        ).fillna(0.0).astype(float)
 
-                # 4. Recalcular el Promedio Final Anual y Condición
+                # 4. Recalcular Promedio Final Anual y Condición
                 edited_df['Promedio'] = (
                     edited_df['Nota_1er_Trim.'] + edited_df['Nota_2do_Trim.'] + edited_df['Nota_3er_Trim.']
                 ) / 3
-                edited_df['Promedio'] = edited_df['Promedio'].round(2)
+                edited_df['Promedio'] = edited_df['Promedio'].round(2).astype(float)
                 edited_df['Condición'] = edited_df['Promedio'].apply(lambda x: 'Aprobado' if x >= 6 else 'Desaprobado')
 
-                # 5. Guardar en session_state columna a columna (.values)
+                # 5. Actualización limpia columna por columna convirtiendo previamente la serie a float en st.session_state
                 for col in edited_df.columns:
-                    st.session_state["notas_df"].loc[edited_df.index, col] = edited_df[col].values
+                    if col in columnas_numericas_notas:
+                        st.session_state["notas_df"][col] = st.session_state["notas_df"][col].astype(float)
+                        st.session_state["notas_df"].loc[edited_df.index, col] = edited_df[col].astype(float).values
+                    else:
+                        st.session_state["notas_df"].loc[edited_df.index, col] = edited_df[col].values
 
                 # 6. Guardar permanentemente en Excel
                 with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
