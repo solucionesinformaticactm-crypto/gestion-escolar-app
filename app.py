@@ -95,15 +95,81 @@ if not st.session_state.autenticado:
         submit = st.form_submit_button("Ingresar al Sistema")
 
         if submit:
+            # 1. Acceso maestro de dirección
             if user_input.strip() == "admin" and pass_input == "admin":
                 st.session_state.autenticado = True
                 st.session_state.usuario = "Administrador"
                 st.session_state.rol = "Direccion"
                 st.rerun()
             else:
-                st.error(
-                    "Usuario o incorrecto. Usa usuario: **admin** / contraseña: **admin**"
-                )
+                # 2. Validación de profesores en el Excel
+                acceso_concedido = False
+                rol_encontrado = "Profesor"
+
+                if (
+                    datos
+                    and "profesores" in datos
+                    and not datos["profesores"].empty
+                ):
+                    df_prof = datos["profesores"]
+
+                    # Buscar columnas de usuario y contraseña de forma flexible
+                    col_usuario = None
+                    col_pass = None
+
+                    for col in df_prof.columns:
+                        col_lower = str(col).lower()
+                        if (
+                            "usuario" in col_lower
+                            or "email" in col_lower
+                            or "mail" in col_lower
+                        ):
+                            col_usuario = col
+                        if (
+                            "contraseña" in col_lower
+                            or "contrasena" in col_lower
+                            or "password" in col_lower
+                            or "clave" in col_lower
+                        ):
+                            col_pass = col
+
+                    if col_usuario:
+                        # Filtrar por usuario
+                        match = df_prof[
+                            df_prof[col_usuario].astype(str).str.lower()
+                            == user_input.strip().lower()
+                        ]
+                        if not match.empty:
+                            # Si existe columna de contraseña, validarla
+                            if col_pass:
+                                pass_registrada = str(
+                                    match.iloc[0][col_pass]
+                                ).strip()
+                                if pass_registrada == pass_input.strip():
+                                    acceso_concedido = True
+                            else:
+                                # Si no hay columna de contraseña registrada, permitir acceso
+                                acceso_concedido = True
+
+                            if acceso_concedido:
+                                st.session_state.usuario = user_input
+                                if "Rol" in df_prof.columns:
+                                    rol_encontrado = str(
+                                        match.iloc[0]["Rol"]
+                                    )
+                                st.session_state.rol = (
+                                    rol_encontrado
+                                    if rol_encontrado != "nan"
+                                    else "Profesor"
+                                )
+
+                if acceso_concedido:
+                    st.session_state.autenticado = True
+                    st.rerun()
+                else:
+                    st.error(
+                        "Usuario o contraseña incorrectos. (O prueba con admin / admin)"
+                    )
 else:
     # --- MENÚ MÓVIL ---
     st.sidebar.title(f"👤 Hola, {st.session_state.usuario}")
@@ -200,14 +266,13 @@ else:
         if datos and "agenda" in datos:
             st.dataframe(datos["agenda"], use_container_width=True)
 
-    # --- SECCIÓN EXCLUSIVA: GESTIÓN DE PROFESORES CON ESCRITURA EN EXCEL ---
+    # --- SECCIÓN EXCLUSIVA: GESTIÓN DE PROFESORES ---
     elif menu_opcion == "👨‍🏫 Gestión de Profesores":
         st.title("Alta y Gestión de Docentes")
         st.markdown(
-            "Complete los datos para registrar un profesor de forma permanente:"
+            "Complete los datos para registrar un profesor y asignarle acceso:"
         )
 
-        # Usamos un formulario cuyos campos se limpian al enviar exitosamente
         with st.form("form_nuevo_profesor", clear_on_submit=True):
             col_a, col_b = st.columns(2)
             with col_a:
@@ -238,11 +303,32 @@ else:
                     )
                     if ruta_excel:
                         try:
-                            # Abrir archivo excel con openpyxl para agregar la fila
                             wb = openpyxl.load_workbook(ruta_excel)
                             if "Profesores" in wb.sheetnames:
                                 ws = wb["Profesores"]
-                                # Agregar nueva fila con los datos ingresados en el orden exacto de las columnas
+
+                                # Verificar si la cabecera tiene las columnas de Usuario y Contraseña, si no, agregarlas
+                                headers = [
+                                    cell.value for cell in ws[1]
+                                ]  # Fila 1
+                                if (
+                                    "Usuario" not in [str(h) for h in headers]
+                                    and len(headers) >= 8
+                                ):
+                                    ws.cell(
+                                        row=1, column=9, value="Usuario"
+                                    )
+                                if (
+                                    "Contrasena"
+                                    not in [str(h) for h in headers]
+                                    and "Contraseña"
+                                    not in [str(h) for h in headers]
+                                    and len(headers) >= 8
+                                ):
+                                    ws.cell(
+                                        row=1, column=10, value="Contraseña"
+                                    )
+
                                 nueva_fila = [
                                     id_prof,
                                     apellido,
@@ -257,14 +343,14 @@ else:
                                 ]
                                 ws.append(nueva_fila)
                                 wb.save(ruta_excel)
-                                st.cache_data.clear()  # Limpiar caché para refrescar datos
+                                st.cache_data.clear()
                                 st.success(
-                                    f"✅ ¡Profesor/a {apellido}, {nombre} guardado y actualizado en el Excel con éxito!"
+                                    f"✅ ¡Profesor/a {apellido}, {nombre} guardado correctamente! Ya puede iniciar sesión con el usuario `{nuevo_usuario}`."
                                 )
                                 st.rerun()
                             else:
                                 st.error(
-                                    "No se encontró la hoja 'Profesores' en el archivo Excel."
+                                    "No se encontró la hoja 'Profesores' en el Excel."
                                 )
                         except Exception as e:
                             st.error(
@@ -279,7 +365,6 @@ else:
 
         st.markdown("---")
         st.subheader("Listado Actualizado de Profesores")
-        # Recargar datos frescos
         datos_frescos = cargar_datos()
         if (
             datos_frescos
