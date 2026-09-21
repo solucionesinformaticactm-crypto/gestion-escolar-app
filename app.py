@@ -78,7 +78,7 @@ def cargar_datos_iniciales():
 
 alumnos_init, profesores_df, plan_df, notas_init, asistencia_init = cargar_datos_iniciales()
 
-# Mantener dataframes en Session State para sincronización dinámica
+# Mantener dataframes en Session State para permitir modificaciones dinámicas
 if "alumnos_df" not in st.session_state:
     st.session_state["alumnos_df"] = alumnos_init.copy()
 if "notas_df" not in st.session_state:
@@ -163,81 +163,114 @@ else:
         with tab_alumnos:
             st.subheader("👨‍🎓 Registro General de Alumnos y Legajos")
 
-            # Módulo de alta de nuevo alumno EXTENDIDO
-            with st.expander("➕ Registrar Nuevo Ingreso de Alumno (Legajo Completo)", expanded=False):
-                st.markdown("##### 📌 Datos Personales y Académicos:")
-                
-                with st.form("form_nuevo_alumno_extendido"):
-                    c1, c2, c3 = st.columns(3)
+            # Módulo de alta de nuevo alumno adaptado a los encabezados exactos del Excel
+            with st.expander("➕ Registrar Nuevo Ingreso de Alumno (Formulario Completo)", expanded=False):
+                with st.form("form_nuevo_alumno_excel"):
+                    st.markdown("##### 👤 1. Datos del Alumno")
+                    c1, c2, c3, c4 = st.columns(4)
                     with c1:
-                        nuevo_nombre = st.text_input("Nombre(s):")
-                        nuevo_dni = st.text_input("DNI / CIdentidad:", placeholder="Ej. 45123890")
-                        nuevo_anio = st.number_input("Año (Curso):", min_value=1, max_value=6, value=1)
-                        
+                        apellido = st.text_input("Apellido:")
+                        fecha_nac = st.date_input("Fecha_Nac.:", value=date(2010, 1, 1))
+                        direccion = st.text_input("Dirección:")
                     with c2:
-                        nuevo_apellido = st.text_input("Apellido(s):")
-                        fecha_nac = st.date_input("Fecha de Nacimiento:", value=date(2010, 1, 1))
-                        nueva_division = st.selectbox("División:", ["A", "B", "C"])
-
+                        nombre = st.text_input("Nombre:")
+                        anio = st.number_input("Año:", min_value=1, max_value=6, value=1)
+                        telefono_alumno = st.text_input("Teléfono_Alumno:")
                     with c3:
-                        domicilio = st.text_input("Domicilio / Dirección:", placeholder="Ej. Av. San Martín 123")
-                        estado_legajo = st.selectbox("Estado de Ingreso:", ["Regular", "Pase / Traslado", "Puntual / Condicional"])
-                        localidad = st.text_input("Localidad / Barrio:", value="Centro")
+                        dni = st.text_input("DNI:")
+                        division = st.selectbox("División:", ["A", "B", "C"])
+                        email_alumno = st.text_input("Email_Alumno:")
+                    with c4:
+                        turno = st.selectbox("Turno:", ["Mañana", "Tarde", "Vespertino"])
 
                     st.markdown("---")
-                    st.markdown("##### 👨‍👩‍👦 Datos del Tutor Responsable y Contacto:")
-                    
-                    ct1, ct2, ct3 = st.columns(3)
+                    st.markdown("##### 👨‍👦 2. Datos del Padre y Madre")
+                    cp1, cp2, cp3, cp4 = st.columns(4)
+                    with cp1:
+                        apellido_padre = st.text_input("Apellido_Padre:")
+                        apellido_madre = st.text_input("Apellido_Madre:")
+                    with cp2:
+                        nombre_padre = st.text_input("Nombre_Padre:")
+                        nombre_madre = st.text_input("Nombre_Madre:")
+                    with cp3:
+                        dni_padre = st.text_input("DNI_Padre:")
+                        dni_madre = st.text_input("DNI_Madre:")
+                    with cp4:
+                        telefono_padre = st.text_input("Teléfono_Padre:")
+                        telefono_madre = st.text_input("Teléfono_Madre:")
+
+                    st.markdown("---")
+                    st.markdown("##### 👩‍👦 3. Datos del Tutor Responsable y Contacto")
+                    ct1, ct2, ct3, ct4 = st.columns(4)
                     with ct1:
-                        nuevo_tutor = st.text_input("Tutor Responsable (Nombre y Parentesco):", placeholder="Ej. María Pérez (Madre)")
+                        apellido_tutor = st.text_input("Apellido_Tutor:")
+                        tutor_responsab = st.text_input("Tutor_Responsab:", placeholder="Ej. Madre, Padre, Tío/a")
                     with ct2:
-                        nuevo_telefono = st.text_input("Teléfono Contacto (WhatsApp):", placeholder="Ej. +5491112345678")
+                        nombre_tutor = st.text_input("Nombre_Tutor:")
+                        telefono_contacto = st.text_input("Telefono_Contacto (WhatsApp):", placeholder="Ej. +5491112345678")
                     with ct3:
-                        email_tutor = st.text_input("Correo Electrónico Tutor:", placeholder="tutor@ejemplo.com")
+                        dni_tutor = st.text_input("DNI_Tutor:")
+                    with ct4:
+                        telefono_tutor = st.text_input("Teléfono_Tutor:")
 
-                    observaciones = st.text_area("Observaciones Sanitarias o Pedagógicas (Opcional):", placeholder="Ej. Presenta certificado médico...")
+                    st.markdown("---")
+                    st.markdown("##### 📝 4. Observaciones")
+                    observaciones = st.text_area("Observaciones:", placeholder="Observaciones adicionales del alumno...")
 
-                    btn_guardar_alumno = st.form_submit_button("💾 Guardar Legajo Completo")
+                    btn_guardar = st.form_submit_button("💾 Guardar Alumno en la Planilla")
 
-                if btn_guardar_alumno:
-                    if nuevo_nombre.strip() and nuevo_apellido.strip():
-                        nuevo_id = f"AL-00{len(alumnos_df) + 1}"
-                        
+                if btn_guardar:
+                    if apellido.strip() and nombre.strip():
+                        # Generar ID interno de seguimiento si no existe columna
+                        id_nuevo = f"AL-00{len(alumnos_df) + 1}"
+
                         nuevo_registro = {
-                            "ID_Alumno": nuevo_id,
-                            "Nombre": nuevo_nombre.strip(),
-                            "Apellido": nuevo_apellido.strip(),
-                            "DNI": nuevo_dni.strip(),
-                            "Fecha_Nacimiento": fecha_nac.strftime('%d/%m/%Y'),
-                            "Año": int(nuevo_anio),
-                            "División": nueva_division,
-                            "Domicilio": domicilio.strip(),
-                            "Localidad": localidad.strip(),
-                            "Estado_Legajo": estado_legajo,
-                            "Tutor_Responsable": nuevo_tutor.strip(),
-                            "Telefono_Contacto": nuevo_telefono.strip(),
-                            "Email_Tutor": email_tutor.strip(),
+                            "ID_Alumno": id_nuevo,
+                            "Apellido": apellido.strip(),
+                            "Nombre": nombre.strip(),
+                            "DNI": dni.strip(),
+                            "Fecha_Nac.": fecha_nac.strftime('%d/%m/%Y'),
+                            "Año": int(anio),
+                            "División": division,
+                            "Turno": turno,
+                            "Dirección": direccion.strip(),
+                            "Teléfono_Alumno": telefono_alumno.strip(),
+                            "Email_Alumno": email_alumno.strip(),
+                            "Apellido_Padre": apellido_padre.strip(),
+                            "Nombre_Padre": nombre_padre.strip(),
+                            "DNI_Padre": dni_padre.strip(),
+                            "Teléfono_Padre": telefono_padre.strip(),
+                            "Apellido_Madre": apellido_madre.strip(),
+                            "Nombre_Madre": nombre_madre.strip(),
+                            "DNI_Madre": dni_madre.strip(),
+                            "Teléfono_Madre": telefono_madre.strip(),
+                            "Apellido_Tutor": apellido_tutor.strip(),
+                            "Nombre_Tutor": nombre_tutor.strip(),
+                            "DNI_Tutor": dni_tutor.strip(),
+                            "Teléfono_Tutor": telefono_tutor.strip(),
+                            "Tutor_Responsab": tutor_responsab.strip(),
+                            "Telefono_Contacto": telefono_contacto.strip(),
                             "Observaciones": observaciones.strip()
                         }
-                        
-                        # 1. Agregar a alumnos_df
+
+                        # Agregar a alumnos_df
                         st.session_state["alumnos_df"] = pd.concat([st.session_state["alumnos_df"], pd.DataFrame([nuevo_registro])], ignore_index=True)
 
-                        # 2. Sincronizar automáticamente en Asistencia
+                        # Sincronizar en Asistencia de Preceptoría
                         nueva_asistencia = {
-                            "ID_Alumno": nuevo_id,
-                            "Alumno": f"{nuevo_apellido.strip()}, {nuevo_nombre.strip()}",
-                            "Año": int(nuevo_anio),
-                            "División": nueva_division,
+                            "ID_Alumno": id_nuevo,
+                            "Alumno": f"{apellido.strip()}, {nombre.strip()}",
+                            "Año": int(anio),
+                            "División": division,
                             "Estado": "Presente",
                             "Observación_Preceptor": "Nuevo Ingreso"
                         }
                         st.session_state["asistencia_df"] = pd.concat([st.session_state["asistencia_df"], pd.DataFrame([nueva_asistencia])], ignore_index=True)
 
-                        st.success(f"✅ ¡Legajo de **{nuevo_apellido}, {nuevo_nombre}** registrado con éxito! (ID: {nuevo_id})")
+                        st.success(f"✅ ¡Alumno **{apellido.strip()}, {nombre.strip()}** agregado exitosamente a la planilla!")
                         st.rerun()
                     else:
-                        st.error("⚠️ Por favor complete los campos obligatorios (Nombre y Apellido).")
+                        st.error("⚠️ Ingrese al menos el Apellido y Nombre del alumno para realizar el registro.")
 
             st.markdown("<br>", unsafe_allow_html=True)
             
@@ -253,7 +286,7 @@ else:
                 curso_filtro = st.selectbox("Filtrar por Curso:", cursos_disponibles)
 
             with col_f2:
-                buscar_alumno = st.text_input("Buscar por Nombre, Apellido, DNI o ID:", placeholder="Ej. Ortiz, DNI, AL-001...")
+                buscar_alumno = st.text_input("Buscar por Nombre, Apellido o DNI:", placeholder="Ej. Pérez, 45123890...")
 
             alumnos_vista = alumnos_df.copy()
             if curso_filtro != "Todos":
@@ -266,14 +299,14 @@ else:
                 alumnos_vista = alumnos_vista[
                     alumnos_vista['Nombre'].astype(str).str.contains(buscar_alumno, case=False, na=False) |
                     alumnos_vista['Apellido'].astype(str).str.contains(buscar_alumno, case=False, na=False) |
-                    alumnos_vista['ID_Alumno'].astype(str).str.contains(buscar_alumno, case=False, na=False)
+                    alumnos_vista['DNI'].astype(str).str.contains(buscar_alumno, case=False, na=False)
                 ]
 
             st.dataframe(alumnos_vista, use_container_width=True)
 
-            # Botón para descargar la planilla actualizada
+            # Exportación de la planilla completa
             st.markdown("---")
-            st.markdown("##### 📥 Exportar Registro Completo de Alumnos a Excel")
+            st.markdown("##### 📥 Exportar Registro de Alumnos en Excel")
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
@@ -281,7 +314,7 @@ else:
                 st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
             
             st.download_button(
-                label="📥 Descargar Sistema Completo de Alumnos (.xlsx)",
+                label="📥 Descargar Planilla Excel Actualizada (.xlsx)",
                 data=buffer.getvalue(),
                 file_name="Gestion_Escolar_Secundaria_Actualizado.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -351,14 +384,16 @@ else:
                 with col_i1:
                     st.info(f"👤 **Alumno:** {row_nota['Alumno']}\n\n📘 **Materia:** {prof_data['Materia_Principal']}")
                 with col_i2:
-                    st.info(f"👩‍👦 **Tutor:** {row_alumno_info.get('Tutor_Responsable', 'No registrado')}\n\n📞 **Teléfono:** {row_alumno_info.get('Telefono_Contacto', 'No registrado')}")
+                    tutor_nom = f"{row_alumno_info.get('Nombre_Tutor', '')} {row_alumno_info.get('Apellido_Tutor', '')}".strip() or row_alumno_info.get('Tutor_Responsab', 'Tutor')
+                    tel_contacto = row_alumno_info.get('Telefono_Contacto', 'No registrado')
+                    st.info(f"👩‍👦 **Tutor:** {tutor_nom}\n\n📞 **Teléfono:** {tel_contacto}")
 
                 col_t = {"1° Trimestre": 'Nota_1er_Trim.', "2° Trimestre": 'Nota_2do_Trim.', "3° Trimestre": 'Nota_3er_Trim.'}
                 nota_val = row_nota[col_t[trimestre_sel]]
 
                 msg_docente = (
-                    f"Estimado/a {row_alumno_info.get('Tutor_Responsable', 'Tutor')}, le informamos desde el Portal Escolar "
-                    f"la calificación correspondientes al {trimestre_sel} del estudiante {row_nota['Alumno']} "
+                    f"Estimado/a {tutor_nom}, le informamos desde el Portal Escolar "
+                    f"la calificación correspondiente al {trimestre_sel} del estudiante {row_nota['Alumno']} "
                     f"en la asignatura {prof_data['Materia_Principal']}: *{nota_val}/10*. "
                     f"Observaciones: {row_nota.get('Observación', 'Sin observaciones')}. "
                     f"Profesor/a: {prof_data['Nombre']} {prof_data['Apellido']}."
@@ -366,9 +401,8 @@ else:
 
                 st.text_area("Mensaje a enviar:", value=msg_docente, height=120)
 
-                tel_tutor = str(row_alumno_info.get('Telefono_Contacto', ''))
-                if tel_tutor and tel_tutor != 'nan':
-                    url_wa_doc = generar_link_whatsapp(tel_tutor, msg_docente)
+                if tel_contacto and str(tel_contacto) != 'nan':
+                    url_wa_doc = generar_link_whatsapp(tel_contacto, msg_docente)
                     st.markdown(f'<a href="{url_wa_doc}" target="_blank"><button style="background-color:#25D366; color:white; padding:10px 20px; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">📲 Abrir WhatsApp y Enviar Informe</button></a>', unsafe_allow_html=True)
                 else:
                     st.warning("⚠️ El alumno no tiene un número de teléfono registrado en el Excel.")
@@ -420,8 +454,8 @@ else:
                 
                 if not info_alumno.empty:
                     info_alumno = info_alumno.iloc[0]
-                    tutor_nom = info_alumno.get('Tutor_Responsable', 'Tutor/a')
-                    tel_tutor = info_alumno.get('Telefono_Contacto', '')
+                    tutor_nom = f"{info_alumno.get('Nombre_Tutor', '')} {info_alumno.get('Apellido_Tutor', '')}".strip() or info_alumno.get('Tutor_Responsab', 'Tutor/a')
+                    tel_contacto = info_alumno.get('Telefono_Contacto', '')
                     
                     msg_ausencia = (
                         f"Estimado/a {tutor_nom}, le notificamos desde la Preceptoría de la Escuela "
@@ -432,10 +466,10 @@ else:
                     
                     col_a1, col_a2 = st.columns([3, 1])
                     with col_a1:
-                        st.write(f"👤 **{row_ausente['Alumno']}** — Tutor: *{tutor_nom}* ({tel_tutor})")
+                        st.write(f"👤 **{row_ausente['Alumno']}** — Tutor: *{tutor_nom}* ({tel_contacto})")
                     with col_a2:
-                        if pd.notna(tel_tutor) and str(tel_tutor) != '':
-                            link_wa = generar_link_whatsapp(tel_tutor, msg_ausencia)
+                        if pd.notna(tel_contacto) and str(tel_contacto) != '':
+                            link_wa = generar_link_whatsapp(tel_contacto, msg_ausencia)
                             st.markdown(f'<a href="{link_wa}" target="_blank"><button style="background-color:#25D366; color:white; padding:6px 12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">📲 Enviar WhatsApp</button></a>', unsafe_allow_html=True)
                         else:
                             st.caption("⚠️ Sin teléfono")
