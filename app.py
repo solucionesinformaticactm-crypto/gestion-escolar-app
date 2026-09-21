@@ -44,6 +44,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+EXCEL_FILE = 'Gestion_Escolar_Secundaria.xlsx'
+
 # Base de datos de Usuarios y Contraseñas
 USUARIOS_DB = {
     "admin.direccion": {"password": "admin123", "nombre": "Equipo Directivo", "rol": "Directivo", "id": "DIR"},
@@ -68,12 +70,11 @@ def generar_link_whatsapp(numero, mensaje):
 # Carga e inicialización de datos desde la planilla Excel
 @st.cache_data
 def cargar_datos_iniciales():
-    excel_path = 'Gestion_Escolar_Secundaria.xlsx'
-    alumnos = pd.read_excel(excel_path, sheet_name='Alumnos')
-    profesores = pd.read_excel(excel_path, sheet_name='Profesores')
-    plan = pd.read_excel(excel_path, sheet_name='Plan_Materias')
-    notas = pd.read_excel(excel_path, sheet_name='Notas')
-    asistencia = pd.read_excel(excel_path, sheet_name='Asistencia')
+    alumnos = pd.read_excel(EXCEL_FILE, sheet_name='Alumnos')
+    profesores = pd.read_excel(EXCEL_FILE, sheet_name='Profesores')
+    plan = pd.read_excel(EXCEL_FILE, sheet_name='Plan_Materias')
+    notas = pd.read_excel(EXCEL_FILE, sheet_name='Notas')
+    asistencia = pd.read_excel(EXCEL_FILE, sheet_name='Asistencia')
     return alumnos, profesores, plan, notas, asistencia
 
 alumnos_init, profesores_df, plan_df, notas_init, asistencia_init = cargar_datos_iniciales()
@@ -89,6 +90,16 @@ if "asistencia_df" not in st.session_state:
 alumnos_df = st.session_state["alumnos_df"]
 notas_df = st.session_state["notas_df"]
 asistencia_df = st.session_state["asistencia_df"]
+
+# Garantizar que las columnas de evaluación continua existan en el DataFrame de Notas
+cols_eval = [
+    '1T_Prueba1', '1T_Oral1', '1T_Prueba2', '1T_Oral2', '1T_Participacion', '1T_Carpeta',
+    '2T_Prueba1', '2T_Oral1', '2T_Prueba2', '2T_Oral2', '2T_Participacion', '2T_Carpeta',
+    '3T_Prueba1', '3T_Oral1', '3T_Prueba2', '3T_Oral2', '3T_Participacion', '3T_Carpeta'
+]
+for col in cols_eval:
+    if col not in st.session_state["notas_df"].columns:
+        st.session_state["notas_df"][col] = 0.0
 
 # -----------------------------------------------------------------------------
 # 🔐 PANTALLA DE INICIO DE SESIÓN
@@ -148,7 +159,7 @@ else:
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.markdown(f'<div class="metric-card"><h4>Total Alumnos</h4><h2>{len(alumnos_df)}</h2></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><h4>Total Alumnos</h4><h2>{len(st.session_state["alumnos_df"])}</h2></div>', unsafe_allow_html=True)
         with col2:
             st.markdown(f'<div class="metric-card"><h4>Total Profesores</h4><h2>{len(profesores_df)}</h2></div>', unsafe_allow_html=True)
         with col3:
@@ -163,7 +174,7 @@ else:
         with tab_alumnos:
             st.subheader("👨‍🎓 Registro General de Alumnos y Legajos")
 
-            # Módulo de alta de nuevo alumno adaptado a los encabezados exactos del Excel
+            # Módulo de alta de nuevo alumno con los 22 campos exactos del Excel
             with st.expander("➕ Registrar Nuevo Ingreso de Alumno (Formulario Completo)", expanded=False):
                 with st.form("form_nuevo_alumno_excel"):
                     st.markdown("##### 👤 1. Datos del Alumno")
@@ -217,12 +228,11 @@ else:
                     st.markdown("##### 📝 4. Observaciones")
                     observaciones = st.text_area("Observaciones:", placeholder="Observaciones adicionales del alumno...")
 
-                    btn_guardar = st.form_submit_button("💾 Guardar Alumno en la Planilla")
+                    btn_guardar = st.form_submit_button("💾 Guardar Alumno en el Excel")
 
                 if btn_guardar:
                     if apellido.strip() and nombre.strip():
-                        # Generar ID interno de seguimiento si no existe columna
-                        id_nuevo = f"AL-00{len(alumnos_df) + 1}"
+                        id_nuevo = f"AL-00{len(st.session_state['alumnos_df']) + 1}"
 
                         nuevo_registro = {
                             "ID_Alumno": id_nuevo,
@@ -253,10 +263,10 @@ else:
                             "Observaciones": observaciones.strip()
                         }
 
-                        # Agregar a alumnos_df
+                        # 1. Agregar a alumnos_df
                         st.session_state["alumnos_df"] = pd.concat([st.session_state["alumnos_df"], pd.DataFrame([nuevo_registro])], ignore_index=True)
 
-                        # Sincronizar en Asistencia de Preceptoría
+                        # 2. Sincronizar en Asistencia
                         nueva_asistencia = {
                             "ID_Alumno": id_nuevo,
                             "Alumno": f"{apellido.strip()}, {nombre.strip()}",
@@ -267,28 +277,35 @@ else:
                         }
                         st.session_state["asistencia_df"] = pd.concat([st.session_state["asistencia_df"], pd.DataFrame([nueva_asistencia])], ignore_index=True)
 
-                        st.success(f"✅ ¡Alumno **{apellido.strip()}, {nombre.strip()}** agregado exitosamente a la planilla!")
+                        # 3. Guardar archivo en disco
+                        with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
+                            st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
+                            st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
+                            st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
+                            profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
+                            plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
+
+                        st.success(f"✅ ¡Alumno **{apellido.strip()}, {nombre.strip()}** guardado permanentemente en el Excel!")
                         st.rerun()
                     else:
                         st.error("⚠️ Ingrese al menos el Apellido y Nombre del alumno para realizar el registro.")
 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Filtro por búsqueda o curso
+            # Filtros
             col_f1, col_f2 = st.columns([1, 2])
             with col_f1:
                 cursos_unicos = (
-                    alumnos_df['Año'].astype(str).str.strip() + "°" + 
-                    alumnos_df['División'].astype(str).str.strip()
+                    st.session_state["alumnos_df"]['Año'].astype(str).str.strip() + "°" + 
+                    st.session_state["alumnos_df"]['División'].astype(str).str.strip()
                 ).unique()
-                
                 cursos_disponibles = ["Todos"] + sorted(list(cursos_unicos))
                 curso_filtro = st.selectbox("Filtrar por Curso:", cursos_disponibles)
 
             with col_f2:
                 buscar_alumno = st.text_input("Buscar por Nombre, Apellido o DNI:", placeholder="Ej. Pérez, 45123890...")
 
-            alumnos_vista = alumnos_df.copy()
+            alumnos_vista = st.session_state["alumnos_df"].copy()
             if curso_filtro != "Todos":
                 partes = curso_filtro.split("°")
                 anio_f = int(partes[0])
@@ -304,7 +321,7 @@ else:
 
             st.dataframe(alumnos_vista, use_container_width=True)
 
-            # Exportación de la planilla completa
+            # Exportación manual
             st.markdown("---")
             st.markdown("##### 📥 Exportar Registro de Alumnos en Excel")
             buffer = io.BytesIO()
@@ -322,7 +339,7 @@ else:
 
         with tab_notas:
             st.subheader("📊 Calificaciones de Todas las Materias y Cursos")
-            st.dataframe(notas_df, use_container_width=True)
+            st.dataframe(st.session_state["notas_df"], use_container_width=True)
 
         with tab_profesores:
             st.subheader("👩‍🏫 Nómina de Profesores y Materias Asignadas")
@@ -336,56 +353,95 @@ else:
 
         tab_cargar_notas, tab_enviar_informe = st.tabs(["📝 Cargar/Modificar Notas", "📲 Enviar Informe Trimestral WhatsApp"])
 
-        notas_prof = notas_df[notas_df['ID_Profesor'] == user_info['id']]
+        notas_prof = st.session_state["notas_df"][st.session_state["notas_df"]['ID_Profesor'] == user_info['id']]
         cursos = notas_prof[['Año', 'División']].drop_duplicates()
         opciones_cursos = [f"{row['Año']}° {row['División']}" for _, row in cursos.iterrows()]
 
         with tab_cargar_notas:
             curso_seleccionado = st.selectbox("Seleccionar Curso:", opciones_cursos, key="doc_curso")
+            trimestre_trabajo = st.radio("Seleccionar Trimestre a Evaluar:", ["1° Trimestre", "2° Trimestre", "3° Trimestre"], horizontal=True)
+
             anio_sel = int(curso_seleccionado.split("°")[0])
             div_sel = curso_seleccionado.split(" ")[1]
 
             notas_curso = notas_prof[(notas_prof['Año'] == anio_sel) & (notas_prof['División'] == div_sel)].copy()
 
-            st.subheader(f"Planilla de Notas: {prof_data['Materia_Principal']} — {curso_seleccionado}")
-            
+            st.subheader(f"Planilla de Evaluación: {prof_data['Materia_Principal']} — {curso_seleccionado}")
+            st.info("💡 Completa las 6 notas individuales. La nota del trimestre y el Promedio Final se recalcularán automáticamente.")
+
+            # Mapeo según el trimestre seleccionado
+            if trimestre_trabajo == "1° Trimestre":
+                cols_sub = ['1T_Prueba1', '1T_Oral1', '1T_Prueba2', '1T_Oral2', '1T_Participacion', '1T_Carpeta']
+                col_trim_res = 'Nota_1er_Trim.'
+            elif trimestre_trabajo == "2° Trimestre":
+                cols_sub = ['2T_Prueba1', '2T_Oral1', '2T_Prueba2', '2T_Oral2', '2T_Participacion', '2T_Carpeta']
+                col_trim_res = 'Nota_2do_Trim.'
+            else:
+                cols_sub = ['3T_Prueba1', '3T_Oral1', '3T_Prueba2', '3T_Oral2', '3T_Participacion', '3T_Carpeta']
+                col_trim_res = 'Nota_3er_Trim.'
+
+            columnas_mostrar = ['ID_Alumno', 'Alumno'] + cols_sub + [col_trim_res, 'Promedio', 'Condición']
+
             edited_df = st.data_editor(
-                notas_curso[['ID_Alumno', 'Alumno', 'Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.', 'Promedio', 'Condición', 'Observación']],
+                notas_curso[columnas_mostrar],
                 column_config={
-                    "Nota_1er_Trim.": st.column_config.SelectboxColumn("1° Trimestre", options=list(range(1, 11)), required=True),
-                    "Nota_2do_Trim.": st.column_config.SelectboxColumn("2° Trimestre", options=list(range(1, 11)), required=True),
-                    "Nota_3er_Trim.": st.column_config.SelectboxColumn("3° Trimestre", options=list(range(1, 11)), required=True),
-                    "Promedio": st.column_config.NumberColumn("Promedio", format="%.2f"),
+                    cols_sub[0]: st.column_config.NumberColumn("Prueba 1", min_value=1, max_value=10, format="%d"),
+                    cols_sub[1]: st.column_config.NumberColumn("L. Oral 1", min_value=1, max_value=10, format="%d"),
+                    cols_sub[2]: st.column_config.NumberColumn("Prueba 2", min_value=1, max_value=10, format="%d"),
+                    cols_sub[3]: st.column_config.NumberColumn("L. Oral 2", min_value=1, max_value=10, format="%d"),
+                    cols_sub[4]: st.column_config.NumberColumn("Participación", min_value=1, max_value=10, format="%d"),
+                    cols_sub[5]: st.column_config.NumberColumn("Carpeta", min_value=1, max_value=10, format="%d"),
+                    col_trim_res: st.column_config.NumberColumn("Prom. Trimestre", format="%.2f"),
+                    "Promedio": st.column_config.NumberColumn("Prom. Final", format="%.2f"),
                     "Condición": st.column_config.TextColumn("Condición")
                 },
-                disabled=['ID_Alumno', 'Alumno', 'Promedio', 'Condición'],
+                disabled=['ID_Alumno', 'Alumno', col_trim_res, 'Promedio', 'Condición'],
                 use_container_width=True
             )
 
-            if st.button("💾 Recalcular Promedios y Guardar"):
-                edited_df['Promedio'] = (edited_df['Nota_1er_Trim.'] + edited_df['Nota_2do_Trim.'] + edited_df['Nota_3er_Trim.']) / 3
+            if st.button("💾 Recalcular y Guardar en Excel"):
+                # 1. Recalcular promedio del trimestre activo
+                edited_df[col_trim_res] = edited_df[cols_sub].mean(axis=1).round(2)
+
+                # 2. Recalcular Promedio Final
+                edited_df['Promedio'] = (
+                    edited_df['Nota_1er_Trim.'] + edited_df['Nota_2do_Trim.'] + edited_df['Nota_3er_Trim.']
+                ) / 3
                 edited_df['Promedio'] = edited_df['Promedio'].round(2)
                 edited_df['Condición'] = edited_df['Promedio'].apply(lambda x: 'Aprobado' if x >= 6 else 'Desaprobado')
-                
-                st.success("¡Promedios y condiciones recalculados automáticamente!")
-                st.dataframe(edited_df[['ID_Alumno', 'Alumno', 'Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.', 'Promedio', 'Condición', 'Observación']], use_container_width=True)
+
+                # 3. Actualizar memory state
+                st.session_state["notas_df"].update(edited_df)
+
+                # 4. Sobrescribir archivo Excel
+                with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
+                    st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
+                    st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
+                    st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
+                    profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
+                    plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
+
+                st.success("✅ ¡Notas y promedios actualizados exitosamente en la planilla Excel!")
+                st.rerun()
 
         with tab_enviar_informe:
             st.subheader("📲 Notificación de Informe Trimestral al Tutor")
             
             alumno_sel = st.selectbox("Seleccionar Alumno para Notificar:", notas_prof['Alumno'].unique())
-            trimestre_sel = st.selectbox("Seleccionar Trimestre:", ["1° Trimestre", "2° Trimestre", "3° Trimestre"])
+            trimestre_sel = st.selectbox("Seleccionar Trimestre a Enviar:", ["1° Trimestre", "2° Trimestre", "3° Trimestre"])
             
             row_nota = notas_prof[notas_prof['Alumno'] == alumno_sel].iloc[0]
-            row_alumno_info = alumnos_df[alumnos_df['ID_Alumno'] == row_nota['ID_Alumno']].iloc[0] if row_nota['ID_Alumno'] in alumnos_df['ID_Alumno'].values else None
+            row_alumno_info = st.session_state["alumnos_df"][st.session_state["alumnos_df"]['ID_Alumno'] == row_nota['ID_Alumno']]
 
-            if row_alumno_info is not None:
+            if not row_alumno_info.empty:
+                row_alumno_info = row_alumno_info.iloc[0]
+                tutor_nom = f"{row_alumno_info.get('Nombre_Tutor', '')} {row_alumno_info.get('Apellido_Tutor', '')}".strip() or row_alumno_info.get('Tutor_Responsab', 'Tutor')
+                tel_contacto = row_alumno_info.get('Telefono_Contacto', 'No registrado')
+
                 col_i1, col_i2 = st.columns(2)
                 with col_i1:
                     st.info(f"👤 **Alumno:** {row_nota['Alumno']}\n\n📘 **Materia:** {prof_data['Materia_Principal']}")
                 with col_i2:
-                    tutor_nom = f"{row_alumno_info.get('Nombre_Tutor', '')} {row_alumno_info.get('Apellido_Tutor', '')}".strip() or row_alumno_info.get('Tutor_Responsab', 'Tutor')
-                    tel_contacto = row_alumno_info.get('Telefono_Contacto', 'No registrado')
                     st.info(f"👩‍👦 **Tutor:** {tutor_nom}\n\n📞 **Teléfono:** {tel_contacto}")
 
                 col_t = {"1° Trimestre": 'Nota_1er_Trim.', "2° Trimestre": 'Nota_2do_Trim.', "3° Trimestre": 'Nota_3er_Trim.'}
@@ -420,7 +476,10 @@ else:
         anio_p = int(curso_p[0])
         div_p = curso_p[2]
         
-        asistencia_filtrada = asistencia_df[(asistencia_df['Año'] == anio_p) & (asistencia_df['División'] == div_p)].copy()
+        asistencia_filtrada = st.session_state["asistencia_df"][
+            (st.session_state["asistencia_df"]['Año'] == anio_p) & 
+            (st.session_state["asistencia_df"]['División'] == div_p)
+        ].copy()
 
         st.subheader(f"Registro de Asistencia - Curso {curso_p} ({fecha_asistencia.strftime('%d/%m/%Y')})")
         
@@ -438,8 +497,16 @@ else:
             use_container_width=True
         )
 
-        if st.button("💾 Guardar Asistencia"):
-            st.success("Asistencia guardada correctamente.")
+        if st.button("💾 Guardar Asistencia en Excel"):
+            st.session_state["asistencia_df"].update(edited_asistencia)
+            with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
+                st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
+                st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
+                st.session_state["asistencia_df"].to_excel(writer, sheet_name='Asistencia', index=False)
+                profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
+                plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
+
+            st.success("✅ Asistencia guardada en el Excel.")
 
         st.markdown("---")
         st.subheader("📲 Envío de Notificaciones de Ausencia por WhatsApp")
@@ -450,7 +517,7 @@ else:
             st.warning(f"Se registraron **{len(ausentes)}** alumno(s) ausente(s) el día {fecha_asistencia.strftime('%d/%m/%Y')}:")
             
             for _, row_ausente in ausentes.iterrows():
-                info_alumno = alumnos_df[alumnos_df['ID_Alumno'] == row_ausente['ID_Alumno']]
+                info_alumno = st.session_state["alumnos_df"][st.session_state["alumnos_df"]['ID_Alumno'] == row_ausente['ID_Alumno']]
                 
                 if not info_alumno.empty:
                     info_alumno = info_alumno.iloc[0]
