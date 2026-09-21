@@ -1,4 +1,5 @@
 import os
+import openpyxl
 import pandas as pd
 import streamlit as st
 
@@ -37,7 +38,7 @@ def buscar_archivo_excel(nombre_archivo="Gestion_Escolar_Secundaria.xlsx"):
     return None
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=1)
 def cargar_datos():
     ruta_excel = buscar_archivo_excel("Gestion_Escolar_Secundaria.xlsx")
     if not ruta_excel:
@@ -94,47 +95,14 @@ if not st.session_state.autenticado:
         submit = st.form_submit_button("Ingresar al Sistema")
 
         if submit:
-            # Acceso maestro de dirección
             if user_input.strip() == "admin" and pass_input == "admin":
                 st.session_state.autenticado = True
                 st.session_state.usuario = "Administrador"
                 st.session_state.rol = "Direccion"
                 st.rerun()
-
-            # Validación de profesores desde la base de datos
-            acceso_concedido = False
-            if datos and "profesores" in datos and not datos["profesores"].empty:
-                df_prof = datos["profesores"]
-                # Buscar columna de usuario
-                col_usuario = None
-                for col in df_prof.columns:
-                    if (
-                        "usuario" in str(col).lower()
-                        or "email" in str(col).lower()
-                    ):
-                        col_usuario = col
-                        break
-
-                if col_usuario:
-                    match = df_prof[
-                        df_prof[col_usuario].astype(str).str.lower()
-                        == user_input.strip().lower()
-                    ]
-                    if not match.empty:
-                        acceso_concedido = True
-                        st.session_state.usuario = user_input
-                        st.session_state.rol = (
-                            match.iloc[0].get("Rol", "Profesor")
-                            if "Rol" in df_prof.columns
-                            else "Profesor"
-                        )
-
-            if acceso_concedido:
-                st.session_state.autenticado = True
-                st.rerun()
             else:
                 st.error(
-                    "Usuario o contraseña incorrectos. (Usa usuario: **admin** / contraseña: **admin**)"
+                    "Usuario o incorrecto. Usa usuario: **admin** / contraseña: **admin**"
                 )
 else:
     # --- MENÚ MÓVIL ---
@@ -142,7 +110,6 @@ else:
     st.sidebar.markdown(f"**Rol:** `{st.session_state.rol}`")
     st.sidebar.markdown("---")
 
-    # Definir opciones de menú según el rol
     opciones_menu = [
         "📱 Panel Principal",
         "📋 Tomar Asistencia",
@@ -152,7 +119,6 @@ else:
         "📅 Agenda Escolar",
     ]
 
-    # Si es Dirección, agregamos la opción de gestión de profesores
     if st.session_state.rol == "Direccion":
         opciones_menu.append("👨‍🏫 Gestión de Profesores")
 
@@ -185,7 +151,6 @@ else:
         with col2:
             st.metric(label="Profesores", value=total_profes)
 
-    # --- SECCIÓN: TOMAR ASISTENCIA ---
     elif menu_opcion == "📋 Tomar Asistencia":
         st.title("Control de Asistencia")
         if (
@@ -210,7 +175,6 @@ else:
         else:
             st.warning("No hay alumnos cargados.")
 
-    # --- SECCIÓN: CARGAR NOTAS ---
     elif menu_opcion == "📝 Cargar Notas":
         st.title("Cargar Notas")
         st.selectbox(
@@ -220,33 +184,31 @@ else:
         if st.button("Registrar"):
             st.success("Nota registrada con éxito.")
 
-    # --- SECCIÓN: PARTES DE CONDUCTA ---
     elif menu_opcion == "⚠️ Partes de Conducta":
         st.title("Conducta")
         st.text_area("Motivo:")
         if st.button("Emitir Parte"):
             st.success("Parte emitido.")
 
-    # --- SECCIÓN: PADRÓN DE ALUMNOS ---
     elif menu_opcion == "👥 Padrón de Alumnos":
         st.title("Padrón de Alumnos")
         if datos and "alumnos" in datos:
             st.dataframe(datos["alumnos"], use_container_width=True)
 
-    # --- SECCIÓN: AGENDA ESCOLAR ---
     elif menu_opcion == "📅 Agenda Escolar":
         st.title("Agenda")
         if datos and "agenda" in datos:
             st.dataframe(datos["agenda"], use_container_width=True)
 
-    # --- SECCIÓN EXCLUSIVA: GESTIÓN DE PROFESORES (SOLO DIRECCIÓN) ---
+    # --- SECCIÓN EXCLUSIVA: GESTIÓN DE PROFESORES CON ESCRITURA EN EXCEL ---
     elif menu_opcion == "👨‍🏫 Gestión de Profesores":
         st.title("Alta y Gestión de Docentes")
         st.markdown(
-            "Complete los datos del profesor para registrarlo en el sistema institucional:"
+            "Complete los datos para registrar un profesor de forma permanente:"
         )
 
-        with st.form("form_nuevo_profesor"):
+        # Usamos un formulario cuyos campos se limpian al enviar exitosamente
+        with st.form("form_nuevo_profesor", clear_on_submit=True):
             col_a, col_b = st.columns(2)
             with col_a:
                 id_prof = st.text_input("ID_Profesor (Ej. P001):")
@@ -267,24 +229,63 @@ else:
                     "Contraseña para la App:", type="password"
                 )
 
-            submit_prof = st.form_submit_button("Guardar Nuevo Profesor")
+            submit_prof = st.form_submit_button("Guardar y Actualizar Excel")
 
             if submit_prof:
                 if id_prof and apellido and nombre and nuevo_usuario:
-                    st.success(
-                        f"¡Profesor/a {apellido}, {nombre} registrado/a correctamente con el usuario `{nuevo_usuario}`!"
+                    ruta_excel = buscar_archivo_excel(
+                        "Gestion_Escolar_Secundaria.xlsx"
                     )
-                    st.info(
-                        "Nota: Para guardarlo de forma permanente en el Excel institucional, recuerda descargar la actualización o agregarlo en la hoja 'Profesores'."
-                    )
+                    if ruta_excel:
+                        try:
+                            # Abrir archivo excel con openpyxl para agregar la fila
+                            wb = openpyxl.load_workbook(ruta_excel)
+                            if "Profesores" in wb.sheetnames:
+                                ws = wb["Profesores"]
+                                # Agregar nueva fila con los datos ingresados en el orden exacto de las columnas
+                                nueva_fila = [
+                                    id_prof,
+                                    apellido,
+                                    nombre,
+                                    dni,
+                                    telefono,
+                                    email,
+                                    materias_asig,
+                                    cursos_asig,
+                                    nuevo_usuario,
+                                    nuevo_pass,
+                                ]
+                                ws.append(nueva_fila)
+                                wb.save(ruta_excel)
+                                st.cache_data.clear()  # Limpiar caché para refrescar datos
+                                st.success(
+                                    f"✅ ¡Profesor/a {apellido}, {nombre} guardado y actualizado en el Excel con éxito!"
+                                )
+                                st.rerun()
+                            else:
+                                st.error(
+                                    "No se encontró la hoja 'Profesores' en el archivo Excel."
+                                )
+                        except Exception as e:
+                            st.error(
+                                f"Error al actualizar el archivo Excel: {e}"
+                            )
+                    else:
+                        st.error("No se encontró el archivo Excel en el servidor.")
                 else:
                     st.warning(
-                        "Por favor, complete al menos ID, Apellido, Nombre y Usuario."
+                        "⚠️ Por favor, complete al menos ID, Apellido, Nombre y Usuario."
                     )
 
         st.markdown("---")
-        st.subheader("Listado Actual de Profesores")
-        if datos and "profesores" in datos and not datos["profesores"].empty:
-            st.dataframe(datos["profesores"], use_container_width=True)
+        st.subheader("Listado Actualizado de Profesores")
+        # Recargar datos frescos
+        datos_frescos = cargar_datos()
+        if (
+            datos_frescos
+            and "profesores" in datos_frescos
+            and not datos_frescos["profesores"].empty
+        ):
+            st.dataframe(datos_frescos["profesores"], use_container_width=True)
         else:
-            st.info("No hay registros de profesores en la hoja actual.")
+            st.info("No hay registros de profesores en la hoja.")
