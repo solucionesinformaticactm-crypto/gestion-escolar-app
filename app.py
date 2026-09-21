@@ -55,19 +55,17 @@ USUARIOS_DB = {
     "preceptoria": {"password": "preceptor123", "nombre": "Preceptoría General", "rol": "Preceptor", "id": "PRE"}
 }
 
-# Manejo de Estado de Sesión (Session State)
+# Manejo de Estado de Sesión
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 if "usuario_actual" not in st.session_state:
     st.session_state["usuario_actual"] = None
 
-# Función auxiliar para generar enlace de WhatsApp
 def generar_link_whatsapp(numero, mensaje):
     num_limpio = ''.join(filter(str.isdigit, str(numero)))
     mensaje_codificado = urllib.parse.quote(mensaje)
     return f"https://wa.me/{num_limpio}?text={mensaje_codificado}"
 
-# Carga e inicialización de datos desde la planilla Excel
 @st.cache_data
 def cargar_datos_iniciales():
     alumnos = pd.read_excel(EXCEL_FILE, sheet_name='Alumnos')
@@ -79,7 +77,6 @@ def cargar_datos_iniciales():
 
 alumnos_init, profesores_df, plan_df, notas_init, asistencia_init = cargar_datos_iniciales()
 
-# Mantener dataframes en Session State para permitir modificaciones dinámicas
 if "alumnos_df" not in st.session_state:
     st.session_state["alumnos_df"] = alumnos_init.copy()
 if "notas_df" not in st.session_state:
@@ -87,11 +84,7 @@ if "notas_df" not in st.session_state:
 if "asistencia_df" not in st.session_state:
     st.session_state["asistencia_df"] = asistencia_init.copy()
 
-alumnos_df = st.session_state["alumnos_df"]
-notas_df = st.session_state["notas_df"]
-asistencia_df = st.session_state["asistencia_df"]
-
-# Garantizar que las columnas de evaluación continua existan en el DataFrame de Notas
+# Garantizar que las columnas de evaluación existan y no contengan valores NaN
 cols_eval = [
     '1T_Prueba1', '1T_Oral1', '1T_Prueba2', '1T_Oral2', '1T_Participacion', '1T_Carpeta',
     '2T_Prueba1', '2T_Oral1', '2T_Prueba2', '2T_Oral2', '2T_Participacion', '2T_Carpeta',
@@ -100,6 +93,8 @@ cols_eval = [
 for col in cols_eval:
     if col not in st.session_state["notas_df"].columns:
         st.session_state["notas_df"][col] = 0.0
+    else:
+        st.session_state["notas_df"][col] = st.session_state["notas_df"][col].fillna(0.0)
 
 # -----------------------------------------------------------------------------
 # 🔐 PANTALLA DE INICIO DE SESIÓN
@@ -138,7 +133,7 @@ if not st.session_state["autenticado"]:
             """)
 
 # -----------------------------------------------------------------------------
-# 🏫 SISTEMA PRINCIPAL (UNA VEZ AUTENTICADO)
+# 🏫 SISTEMA PRINCIPAL
 # -----------------------------------------------------------------------------
 else:
     user_info = st.session_state["usuario_actual"]
@@ -174,7 +169,6 @@ else:
         with tab_alumnos:
             st.subheader("👨‍🎓 Registro General de Alumnos y Legajos")
 
-            # Módulo de alta de nuevo alumno con los 22 campos exactos del Excel
             with st.expander("➕ Registrar Nuevo Ingreso de Alumno (Formulario Completo)", expanded=False):
                 with st.form("form_nuevo_alumno_excel"):
                     st.markdown("##### 👤 1. Datos del Alumno")
@@ -263,10 +257,8 @@ else:
                             "Observaciones": observaciones.strip()
                         }
 
-                        # 1. Agregar a alumnos_df
                         st.session_state["alumnos_df"] = pd.concat([st.session_state["alumnos_df"], pd.DataFrame([nuevo_registro])], ignore_index=True)
 
-                        # 2. Sincronizar en Asistencia
                         nueva_asistencia = {
                             "ID_Alumno": id_nuevo,
                             "Alumno": f"{apellido.strip()}, {nombre.strip()}",
@@ -277,7 +269,6 @@ else:
                         }
                         st.session_state["asistencia_df"] = pd.concat([st.session_state["asistencia_df"], pd.DataFrame([nueva_asistencia])], ignore_index=True)
 
-                        # 3. Guardar archivo en disco
                         with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
                             st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
                             st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
@@ -292,7 +283,6 @@ else:
 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Filtros
             col_f1, col_f2 = st.columns([1, 2])
             with col_f1:
                 cursos_unicos = (
@@ -321,7 +311,6 @@ else:
 
             st.dataframe(alumnos_vista, use_container_width=True)
 
-            # Exportación manual
             st.markdown("---")
             st.markdown("##### 📥 Exportar Registro de Alumnos en Excel")
             buffer = io.BytesIO()
@@ -345,7 +334,7 @@ else:
             st.subheader("👩‍🏫 Nómina de Profesores y Materias Asignadas")
             st.dataframe(profesores_df, use_container_width=True)
 
-    # --- VISTA DOCENTE ---
+    # --- VISTA DOCENTE (CÁLCULOS CORREGIDOS) ---
     elif user_info['rol'] == 'Docente':
         prof_data = profesores_df[profesores_df['ID_Profesor'] == user_info['id']].iloc[0]
         st.title(f"📚 Gestión Académica — Prof. {prof_data['Nombre']} {prof_data['Apellido']}")
@@ -364,12 +353,16 @@ else:
             anio_sel = int(curso_seleccionado.split("°")[0])
             div_sel = curso_seleccionado.split(" ")[1]
 
-            notas_curso = notas_prof[(notas_prof['Año'] == anio_sel) & (notas_prof['División'] == div_sel)].copy()
+            # Obtener datos e índices originales para garantizar actualización exacta
+            notas_curso = st.session_state["notas_df"][
+                (st.session_state["notas_df"]['ID_Profesor'] == user_info['id']) &
+                (st.session_state["notas_df"]['Año'] == anio_sel) &
+                (st.session_state["notas_df"]['División'] == div_sel)
+            ].copy()
 
             st.subheader(f"Planilla de Evaluación: {prof_data['Materia_Principal']} — {curso_seleccionado}")
-            st.info("💡 Completa las 6 notas individuales. La nota del trimestre y el Promedio Final se recalcularán automáticamente.")
+            st.info("💡 Ingresa las notas de cada examen. Haz clic en '💾 Recalcular y Guardar' para calcular el Promedio Trimestral y Final.")
 
-            # Mapeo según el trimestre seleccionado
             if trimestre_trabajo == "1° Trimestre":
                 cols_sub = ['1T_Prueba1', '1T_Oral1', '1T_Prueba2', '1T_Oral2', '1T_Participacion', '1T_Carpeta']
                 col_trim_res = 'Nota_1er_Trim.'
@@ -385,35 +378,44 @@ else:
             edited_df = st.data_editor(
                 notas_curso[columnas_mostrar],
                 column_config={
-                    cols_sub[0]: st.column_config.NumberColumn("Prueba 1", min_value=1, max_value=10, format="%d"),
-                    cols_sub[1]: st.column_config.NumberColumn("L. Oral 1", min_value=1, max_value=10, format="%d"),
-                    cols_sub[2]: st.column_config.NumberColumn("Prueba 2", min_value=1, max_value=10, format="%d"),
-                    cols_sub[3]: st.column_config.NumberColumn("L. Oral 2", min_value=1, max_value=10, format="%d"),
-                    cols_sub[4]: st.column_config.NumberColumn("Participación", min_value=1, max_value=10, format="%d"),
-                    cols_sub[5]: st.column_config.NumberColumn("Carpeta", min_value=1, max_value=10, format="%d"),
+                    cols_sub[0]: st.column_config.NumberColumn("Prueba 1", min_value=0, max_value=10, format="%d"),
+                    cols_sub[1]: st.column_config.NumberColumn("L. Oral 1", min_value=0, max_value=10, format="%d"),
+                    cols_sub[2]: st.column_config.NumberColumn("Prueba 2", min_value=0, max_value=0, format="%d"),
+                    cols_sub[3]: st.column_config.NumberColumn("L. Oral 2", min_value=0, max_value=10, format="%d"),
+                    cols_sub[4]: st.column_config.NumberColumn("Participación", min_value=0, max_value=10, format="%d"),
+                    cols_sub[5]: st.column_config.NumberColumn("Carpeta", min_value=0, max_value=10, format="%d"),
                     col_trim_res: st.column_config.NumberColumn("Prom. Trimestre", format="%.2f"),
                     "Promedio": st.column_config.NumberColumn("Prom. Final", format="%.2f"),
                     "Condición": st.column_config.TextColumn("Condición")
                 },
                 disabled=['ID_Alumno', 'Alumno', col_trim_res, 'Promedio', 'Condición'],
-                use_container_width=True
+                use_container_width=True,
+                key=f"editor_{trimestre_trabajo}_{anio_sel}_{div_sel}"
             )
 
             if st.button("💾 Recalcular y Guardar en Excel"):
-                # 1. Recalcular promedio del trimestre activo
+                # Convertir celdas vacías en 0.0 para no arruinar cálculos
+                edited_df[cols_sub] = edited_df[cols_sub].fillna(0.0)
+
+                # 1. Calcular el Promedio del Trimestre Activo sumando solo las notas ingresadas
                 edited_df[col_trim_res] = edited_df[cols_sub].mean(axis=1).round(2)
 
-                # 2. Recalcular Promedio Final
+                # Mantener los valores de los otros trimestres desde la sesión
+                for t_col in ['Nota_1er_Trim.', 'Nota_2do_Trim.', 'Nota_3er_Trim.']:
+                    if t_col != col_trim_res:
+                        edited_df[t_col] = st.session_state["notas_df"].loc[edited_df.index, t_col].fillna(0.0)
+
+                # 2. Recalcular el Promedio Final Anual
                 edited_df['Promedio'] = (
                     edited_df['Nota_1er_Trim.'] + edited_df['Nota_2do_Trim.'] + edited_df['Nota_3er_Trim.']
                 ) / 3
                 edited_df['Promedio'] = edited_df['Promedio'].round(2)
                 edited_df['Condición'] = edited_df['Promedio'].apply(lambda x: 'Aprobado' if x >= 6 else 'Desaprobado')
 
-                # 3. Actualizar memory state
-                st.session_state["notas_df"].update(edited_df)
+                # 3. Guardar cambios en el DataFrame principal respetando los índices
+                st.session_state["notas_df"].loc[edited_df.index, edited_df.columns] = edited_df
 
-                # 4. Sobrescribir archivo Excel
+                # 4. Guardar físicamente en la planilla Excel
                 with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
                     st.session_state["alumnos_df"].to_excel(writer, sheet_name='Alumnos', index=False)
                     st.session_state["notas_df"].to_excel(writer, sheet_name='Notas', index=False)
@@ -421,7 +423,7 @@ else:
                     profesores_df.to_excel(writer, sheet_name='Profesores', index=False)
                     plan_df.to_excel(writer, sheet_name='Plan_Materias', index=False)
 
-                st.success("✅ ¡Notas y promedios actualizados exitosamente en la planilla Excel!")
+                st.success("✅ ¡Notas y promedios calculados y guardados correctamente!")
                 st.rerun()
 
         with tab_enviar_informe:
